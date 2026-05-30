@@ -45,13 +45,13 @@
  * supportsDeveloperRole is set to false for all models.
  *
  * Tool use notes:
- *   - Kimi K2.6 NVFP4: vLLM's Kimi deployment does not support the
- *     `tool_choice` parameter (the server lacks --enable-auto-tool-choice
- *     and --tool-call-parser). Pi sends `tool_choice: "auto"` when tools
- *     are present, which triggers a 400. The before_provider_request hook
- *     strips `tool_choice` from the payload for this model so tool use
- *     still works — the model can still call tools, it just can't be
- *     forced to via the parameter.
+ *   - Kimi K2.6 NVFP4: vLLM's Kimi deployment does not have
+ *     --enable-auto-tool-choice or --tool-call-parser set. When tools
+ *     are present in the payload without an explicit tool_choice, vLLM
+ *     defaults tool_choice to "auto" internally, triggering a 400.
+ *     The before_provider_request hook forces tool_choice: "none" to
+ *     avoid the implicit default-to-auto. Tool calling is effectively
+ *     disabled for this model until Makora enables the server flags.
  *
  * Usage:
  *   # Option 1: Store in auth.json (recommended)
@@ -215,23 +215,24 @@ export default function (pi: ExtensionAPI) {
     models,
   });
 
-  // Strip tool_choice for models whose vLLM deployment does not support it.
-  // Without --enable-auto-tool-choice on the server, sending tool_choice in
-  // the request causes a 400 error. The model can still call tools — it just
-  // can't be instructed to via tool_choice.
-  const NO_TOOL_CHOICE_MODELS = new Set([
+  // Force tool_choice: "none" for models whose vLLM deployment lacks
+  // --enable-auto-tool-choice and --tool-call-parser. When tools are
+  // present in the payload without an explicit tool_choice, vLLM
+  // defaults tool_choice to "auto" internally, which triggers a 400.
+  // Setting it to "none" explicitly avoids the default-to-auto path.
+  // The model can still call tools through its chat template, but vLLM
+  // will not parse tool call outputs without --tool-call-parser, so
+  // tool use is effectively disabled for these models regardless.
+  const NO_AUTO_TOOL_CHOICE_MODELS = new Set([
     "nvidia/Kimi-K2.6-NVFP4",
   ]);
 
-  pi.on("before_provider_request", (event, ctx) => {
-    const modelId = ctx.model?.id;
-    if (!modelId || !NO_TOOL_CHOICE_MODELS.has(modelId)) return;
-    if (ctx.model?.provider !== PROVIDER_ID) return;
-
+  pi.on("before_provider_request", (event, _ctx) => {
     const payload = event.payload as Record<string, unknown>;
-    if ("tool_choice" in payload) {
-      const { tool_choice: _, ...rest } = payload;
-      return rest;
-    }
+    const modelId = payload.model as string | undefined;
+    if (!modelId || !NO_AUTO_TOOL_CHOICE_MODELS.has(modelId)) return;
+    if (!("tools" in payload)) return;
+
+    return { ...payload, tool_choice: "none" };
   });
 }
