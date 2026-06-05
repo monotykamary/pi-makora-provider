@@ -1,1 +1,54 @@
-{}
+{
+  "deepseek-ai/DeepSeek-V4-Flash": {
+    "reasoning": true,
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "deepseek",
+      "supportsReasoningEffort": true
+    }
+  },
+  "deepseek-ai/DeepSeek-V4-Pro": {
+    "reasoning": true,
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "deepseek",
+      "supportsReasoningEffort": true
+    }
+  },
+  "zai-org/GLM-5.1-FP8": {
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    }
+  },
+  "openai/gpt-oss-120b": {
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    }
+  },
+  "nvidia/Kimi-K2.6-NVFP4": {
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    }
+  },
+  "unsloth/Qwen3.6-27B-NVFP4": {
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    }
+  },
+  "unsloth/Qwen3.6-35B-A3B-NVFP4": {
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    }
+  }
+}
