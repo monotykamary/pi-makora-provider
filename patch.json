@@ -18,7 +18,8 @@
     },
     "compat": {
       "thinkingFormat": "deepseek",
-      "supportsReasoningEffort": true
+      "supportsReasoningEffort": true,
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   "zai-org/GLM-5.1-FP8": {

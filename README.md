@@ -15,17 +15,18 @@ _DeepSeek V4, Kimi K2.6, GLM 5.1, Qwen 3.6 — with client-side tool call repair
 
 ## Models
 
+<!-- MODELS_TABLE_START -->
 | Model | ID | Reasoning | Notes |
 |-------|----|-----------|-------|
-| DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | No | Reasoning not supported on Makora's vLLM deployment |
-| DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | No | Reasoning not supported on Makora's vLLM deployment |
+| DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | `include_reasoning` via `before_provider_request` payload rewrite; returns `reasoning` field |
+| DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning_content` field |
 | GLM 5.1 FP8 | `zai-org/GLM-5.1-FP8` | Yes | `enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass) |
 | GPT-OSS 120B | `openai/gpt-oss-120b` | Yes | Reasoning always on |
-| HY3 Preview | `hy3-preview` | No | |
 | Kimi K2.6 NVFP4 | `nvidia/Kimi-K2.6-NVFP4` | Yes | Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass) |
-| Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No | |
+| Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | Qwen 3.6 27B NVFP4 | `unsloth/Qwen3.6-27B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass) |
 | Qwen 3.6 35B A3B NVFP4 | `unsloth/Qwen3.6-35B-A3B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass) |
+<!-- MODELS_TABLE_END -->
 
 ## Installation
 
@@ -147,4 +148,4 @@ These issues are common to all vLLM-hosted providers and affect Makora models:
 
 - **GLM 5.1 CoT leak**: On some vLLM builds, disabling reasoning may still leak chain-of-thought into `content` terminated by a ``` marker. See [vllm-project/vllm#31319](https://github.com/vllm-project/vllm/issues/31319).
 
-- **DeepSeek V4 reasoning**: The current vLLM deployment does not support DeepSeek V4 reasoning mode. `reasoning_content` is always null even when `thinking` is enabled. Both DeepSeek V4 models are registered as `reasoning: false`.
+- **DeepSeek V4 reasoning**: The official DeepSeek API uses `thinking: { type: "enabled" }` which Makora's vLLM silently ignores. The `before_provider_request` hook rewrites the payload to use vLLM-native params instead: `chat_template_kwargs: { thinking: true }` for DS V4 Pro, and `include_reasoning: true` for DS V4 Flash. Pro returns `reasoning_content`; Flash returns `reasoning`.

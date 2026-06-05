@@ -13,8 +13,15 @@
  * Model resolution strategy: static models.json merged with custom-models.json
  *
  * Reasoning notes:
- *   - DeepSeek V4 Flash/Pro: reasoning NOT supported on Makora's current
- *     vLLM deployment (reasoning_content is always null).
+ *   - DeepSeek V4 Pro: reasoning via chat_template_kwargs.thinking on vLLM.
+ *     pi sends thinking: { type } via the "deepseek" thinkingFormat, but vLLM
+ *     ignores that — the before_provider_request hook rewrites the payload to
+ *     use chat_template_kwargs: { thinking: true } instead.
+ *     Returns reasoning_content field.
+ *   - DeepSeek V4 Flash: reasoning via include_reasoning on vLLM.
+ *     The before_provider_request hook rewrites the payload to replace
+ *     thinking: { type } with include_reasoning: true.
+ *     Returns reasoning field.
  *   - GLM 5.1 FP8: reasoning via chat_template_kwargs.enable_thinking.
  *     NOTE: vLLM may leak chain-of-thought into content instead of the
  *     reasoning field on some builds. See
@@ -70,6 +77,7 @@ interface JsonModel {
   contextWindow: number;
   maxTokens: number;
   baseUrl?: string;
+  notes?: string;
   thinkingLevelMap?: Record<string, string | null>;
   headers?: Record<string, string>;
   vision?: {
@@ -108,6 +116,7 @@ interface PatchEntry {
   contextWindow?: number;
   maxTokens?: number;
   baseUrl?: string;
+  notes?: string;
   thinkingLevelMap?: Record<string, string | null>;
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
@@ -126,6 +135,7 @@ function applyPatch(model: JsonModel, patch: PatchEntry): JsonModel {
   if (patch.contextWindow !== undefined) result.contextWindow = patch.contextWindow;
   if (patch.maxTokens !== undefined) result.maxTokens = patch.maxTokens;
   if (patch.baseUrl !== undefined) result.baseUrl = patch.baseUrl;
+  if (patch.notes !== undefined) result.notes = patch.notes;
   if (patch.thinkingLevelMap !== undefined) result.thinkingLevelMap = { ...patch.thinkingLevelMap };
   if (patch.headers !== undefined) result.headers = { ...patch.headers };
 
@@ -192,6 +202,43 @@ function buildModels(
 const PROVIDER_ID = "makora";
 const BASE_URL = "https://inference.makora.com/v1";
 
+const DS_PRO_ID = "deepseek-ai/DeepSeek-V4-Pro";
+const DS_FLASH_ID = "deepseek-ai/DeepSeek-V4-Flash";
+
+const DS_VLLM_MODELS = new Set([DS_PRO_ID, DS_FLASH_ID]);
+
+/**
+ * Intercept the request payload for DeepSeek V4 models on vLLM.
+ *
+ * pi's "deepseek" thinkingFormat sends `thinking: { type: "enabled" }` which
+ * is the official DeepSeek API format — but Makora's vLLM deployment ignores
+ * it. vLLM requires different params:
+ *   - DS V4 Pro:  `chat_template_kwargs: { thinking: true }` + `reasoning_effort`
+ *   - DS V4 Flash: `include_reasoning: true` + `reasoning_effort`
+ *
+ * This hook rewrites the payload accordingly.
+ */
+function rewriteDsVllmPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const model = payload.model as string | undefined;
+  if (!model || !DS_VLLM_MODELS.has(model)) return payload;
+
+  const p = { ...payload };
+
+  // Remove the DeepSeek API-style `thinking` param that vLLM ignores
+  delete p.thinking;
+
+  if (model === DS_PRO_ID) {
+    // DS Pro: chat_template_kwargs.thinking + reasoning_effort
+    const ctq = (p.chat_template_kwargs as Record<string, unknown>) ?? {};
+    p.chat_template_kwargs = { ...ctq, thinking: true };
+  } else if (model === DS_FLASH_ID) {
+    // DS Flash: include_reasoning + reasoning_effort
+    p.include_reasoning = true;
+  }
+
+  return p;
+}
+
 export default function (pi: ExtensionAPI) {
   const embeddedModels = modelsData as JsonModel[];
   const customModels = customModelsData as JsonModel[];
@@ -206,6 +253,12 @@ export default function (pi: ExtensionAPI) {
     apiKey: "$MAKORA_OPTIMIZE_TOKEN",
     api: "openai-completions",
     models,
+  });
+
+  pi.on("before_provider_request", (event) => {
+    const payload = event.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload.model !== "string") return;
+    return rewriteDsVllmPayload(payload);
   });
 }
 

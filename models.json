@@ -3,6 +3,7 @@
     "id": "deepseek-ai/DeepSeek-V4-Flash",
     "name": "DeepSeek V4 Flash",
     "reasoning": false,
+    "notes": "`include_reasoning` via `before_provider_request` payload rewrite; returns `reasoning` field",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -22,6 +23,7 @@
     "id": "deepseek-ai/DeepSeek-V4-Pro",
     "name": "DeepSeek V4 Pro",
     "reasoning": false,
+    "notes": "`chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning_content` field",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -41,6 +43,7 @@
     "id": "zai-org/GLM-5.1-FP8",
     "name": "GLM 5.1 FP8",
     "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -63,6 +66,7 @@
     "id": "openai/gpt-oss-120b",
     "name": "GPT-OSS 120B",
     "reasoning": true,
+    "notes": "Reasoning always on",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -84,6 +88,7 @@
     "id": "nvidia/Kimi-K2.6-NVFP4",
     "name": "Kimi K2.6 NVFP4",
     "reasoning": true,
+    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -105,6 +110,7 @@
     "id": "amd/Llama-3.3-70B-Instruct-FP8-KV",
     "name": "Llama 3.3 70B FP8",
     "reasoning": false,
+    "notes": "",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -125,6 +131,7 @@
     "id": "unsloth/Qwen3.6-27B-NVFP4",
     "name": "Qwen 3.6 27B NVFP4",
     "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
     "input": ["text"],
     "cost": {
       "input": 0,
@@ -146,6 +153,7 @@
     "id": "unsloth/Qwen3.6-35B-A3B-NVFP4",
     "name": "Qwen 3.6 35B A3B NVFP4",
     "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
     "input": ["text"],
     "cost": {
       "input": 0,
