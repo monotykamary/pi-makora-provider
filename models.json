@@ -3,16 +3,17 @@
     "id": "deepseek-ai/DeepSeek-V4-Flash",
     "name": "DeepSeek V4 Flash",
     "reasoning": false,
-    "notes": "`include_reasoning` + `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning` field",
-    "input": ["text"],
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 1000000,
-    "maxTokens": 16384,
+    "contextWindow": 1048576,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
@@ -23,16 +24,17 @@
     "id": "deepseek-ai/DeepSeek-V4-Pro",
     "name": "DeepSeek V4 Pro",
     "reasoning": false,
-    "notes": "`chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning_content` field",
-    "input": ["text"],
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 1000000,
-    "maxTokens": 16384,
+    "contextWindow": 800000,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
@@ -40,56 +42,33 @@
     }
   },
   {
-    "id": "zai-org/GLM-5.1-FP8",
-    "name": "GLM 5.1 FP8",
-    "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; client-side tool call parsing (vLLM streaming parser bypass)",
-    "input": ["text"],
+    "id": "meta-llama/Llama-3.3-70B-Instruct",
+    "name": "Llama 3.3 70B Instruct",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 200000,
-    "maxTokens": 16384,
+    "contextWindow": 131072,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
-      "maxTokensField": "max_completion_tokens",
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true,
-      "zaiToolStream": true
-    }
-  },
-  {
-    "id": "openai/gpt-oss-120b",
-    "name": "GPT-OSS 120B",
-    "reasoning": true,
-    "notes": "Reasoning always on",
-    "input": ["text"],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 128000,
-    "maxTokens": 16384,
-    "compat": {
-      "supportsDeveloperRole": false,
-      "supportsStore": false,
-      "maxTokensField": "max_completion_tokens",
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "maxTokensField": "max_completion_tokens"
     }
   },
   {
     "id": "nvidia/Kimi-K2.6-NVFP4",
     "name": "Kimi K2.6 NVFP4",
-    "reasoning": true,
-    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
-    "input": ["text"],
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
@@ -97,30 +76,28 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 16384,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
-      "maxTokensField": "max_completion_tokens",
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "maxTokensField": "max_completion_tokens"
     }
   },
   {
-    "id": "amd/Llama-3.3-70B-Instruct-FP8-KV",
-    "name": "Llama 3.3 70B FP8",
+    "id": "openai/gpt-oss-120b",
+    "name": "GPT-OSS 120B",
     "reasoning": false,
-    "notes": "",
-    "input": ["text"],
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 128000,
-    "maxTokens": 16384,
-    "baseUrl": "https://inference.makora.com/llama3-3-70b-instruct-fp8/v1",
+    "contextWindow": 131072,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
@@ -130,9 +107,10 @@
   {
     "id": "unsloth/Qwen3.6-27B-NVFP4",
     "name": "Qwen 3.6 27B NVFP4",
-    "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
-    "input": ["text"],
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
@@ -140,21 +118,20 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 16384,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
-      "maxTokensField": "max_completion_tokens",
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "maxTokensField": "max_completion_tokens"
     }
   },
   {
     "id": "unsloth/Qwen3.6-35B-A3B-NVFP4",
     "name": "Qwen 3.6 35B A3B NVFP4",
-    "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
-    "input": ["text"],
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
     "cost": {
       "input": 0,
       "output": 0,
@@ -162,13 +139,32 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 16384,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,
-      "maxTokensField": "max_completion_tokens",
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  {
+    "id": "zai-org/GLM-5.1-FP8",
+    "name": "GLM 5.1 FP8",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 0,
+    "maxTokens": 0,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
     }
   }
 ]

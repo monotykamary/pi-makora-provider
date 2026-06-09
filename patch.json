@@ -1,6 +1,8 @@
 {
   "deepseek-ai/DeepSeek-V4-Flash": {
     "reasoning": true,
+    "notes": "`include_reasoning` + `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning` field",
+    "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
       "low": null,
@@ -14,7 +16,10 @@
     }
   },
   "deepseek-ai/DeepSeek-V4-Pro": {
+    "contextWindow": 1000000,
     "reasoning": true,
+    "notes": "`chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning_content` field",
+    "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
       "low": null,
@@ -28,35 +33,78 @@
       "requiresReasoningContentOnAssistantMessages": true
     }
   },
-  "zai-org/GLM-5.1-FP8": {
+  "meta-llama/Llama-3.3-70B-Instruct": {
+    "maxTokens": 16384
+  },
+  "nvidia/Kimi-K2.6-NVFP4": {
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
+    "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true
     }
   },
   "openai/gpt-oss-120b": {
+    "reasoning": true,
+    "notes": "Reasoning always on",
+    "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
-    }
-  },
-  "nvidia/Kimi-K2.6-NVFP4": {
-    "input": ["text", "image"],
-    "thinkingLevelMap": {
-      "minimal": "low",
-      "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true
     }
   },
   "unsloth/Qwen3.6-27B-NVFP4": {
+    "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
+    "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true
     }
   },
   "unsloth/Qwen3.6-35B-A3B-NVFP4": {
+    "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
+    "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true
+    }
+  },
+  "zai-org/GLM-5.1-FP8": {
+    "contextWindow": 200000,
+    "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; client-side tool call parsing (vLLM streaming parser bypass)",
+    "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true,
+      "zaiToolStream": true
     }
   }
 }

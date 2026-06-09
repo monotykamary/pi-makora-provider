@@ -1,1 +1,24 @@
-[]
+[
+  {
+    "id": "amd/Llama-3.3-70B-Instruct-FP8-KV",
+    "name": "Llama 3.3 70B FP8",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 128000,
+    "maxTokens": 16384,
+    "baseUrl": "https://inference.makora.com/llama3-3-70b-instruct-fp8/v1",
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
+    }
+  }
+]
