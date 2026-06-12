@@ -36,7 +36,7 @@
       "text",
       "image"
     ],
-    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "Reasoning on by default",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
@@ -60,7 +60,7 @@
   },
   "unsloth/Qwen3.6-27B-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "`enable_thinking` via `qwen-chat-template`",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
@@ -72,7 +72,7 @@
   },
   "unsloth/Qwen3.6-35B-A3B-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "`enable_thinking` via `qwen-chat-template`",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
@@ -85,7 +85,7 @@
   "zai-org/GLM-5.1-FP8": {
     "contextWindow": 200000,
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "`enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; tool_stream via `zaiToolStream`",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
