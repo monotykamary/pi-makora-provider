@@ -35,8 +35,8 @@
  *     request, which forces vLLM to use the explicit tool streaming path
  *     that correctly emits tool call chunks.
  *   - GPT-OSS 120B: reasoning always on; returns `reasoning` field.
- *   - Kimi K2.6 NVFP4: reasoning always on by default; returns `reasoning`
- *     field. Can be toggled via enable_thinking.
+ *   - Kimi K2.6 NVFP4 / Kimi K2.7 Code: reasoning always on by default;
+ *     returns `reasoning` field. Can be toggled via enable_thinking.
  *   - Qwen 3.6 models: reasoning via chat_template_kwargs.enable_thinking;
  *     returns `reasoning` field.
  *   - MiniMax M3 MXFP8: reasoning via chat_template_kwargs.enable_thinking;

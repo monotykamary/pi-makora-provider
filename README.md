@@ -23,6 +23,7 @@ _DeepSeek V4, Kimi K2.6, GLM 5.1, Qwen 3.6 — with client-side tool call repair
 | GLM 5.1 FP8 | `zai-org/GLM-5.1-FP8` | Yes | `enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; client-side tool call parsing (vLLM streaming parser bypass) |
 | GPT-OSS 120B | `openai/gpt-oss-120b` | Yes | Reasoning always on |
 | Kimi K2.6 NVFP4 | `nvidia/Kimi-K2.6-NVFP4` | Yes | Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass) |
+| Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass) |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | Llama 3.3 70B Instruct | `meta-llama/Llama-3.3-70B-Instruct` | No |  |
 | MiniMax M3 MXFP8 | `MiniMaxAI/MiniMax-M3-MXFP8` | Yes | Reasoning via `chat_template_kwargs.enable_thinking`; returns `reasoning_content` field |

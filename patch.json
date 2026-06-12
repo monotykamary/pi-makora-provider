@@ -102,6 +102,22 @@
       "requiresReasoningContentOnAssistantMessages": true
     }
   },
+  "moonshotai/Kimi-K2.7-Code": {
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
+    "thinkingLevelMap": {
+      "minimal": "low",
+      "xhigh": "high"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true
+    }
+  },
   "zai-org/GLM-5.1-FP8": {
     "contextWindow": 200000,
     "reasoning": true,
