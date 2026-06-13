@@ -20,26 +20,5 @@
       "supportsStore": false,
       "maxTokensField": "max_completion_tokens"
     }
-  },
-  {
-    "id": "moonshotai/Kimi-K2.7-Code",
-    "name": "Kimi K2.7 Code",
-    "reasoning": false,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 262144,
-    "maxTokens": 0,
-    "compat": {
-      "supportsDeveloperRole": false,
-      "supportsStore": false,
-      "maxTokensField": "max_completion_tokens"
-    }
   }
 ]
