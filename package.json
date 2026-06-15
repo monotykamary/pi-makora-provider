@@ -23,8 +23,16 @@
     "llama",
     "qwen"
   ],
-  "author": "",
+  "author": "monotykamary",
   "license": "MIT",
+  "files": [
+    "index.ts",
+    "models.json",
+    "custom-models.json",
+    "patch.json",
+    "README.md",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": [
       "./index.ts"
