@@ -20,10 +20,7 @@ _DeepSeek V4, Kimi K2.6, GLM 5.1, Qwen 3.6 — with client-side tool call repair
 |-------|----|-----------|-------|
 | DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | `include_reasoning` + `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning` field |
 | DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning_content` field |
-| GLM 5.1 FP8 | `zai-org/GLM-5.1-FP8` | Yes | `enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; client-side tool call parsing (vLLM streaming parser bypass) |
 | GLM 5.2 FP8 | `zai-org/GLM-5.2-FP8` | Yes | `enable_thinking` via `qwen-chat-template`; thinking levels copied from neuralwatt GLM 5.2; returns `reasoning_content` field |
-| GPT-OSS 120B | `openai/gpt-oss-120b` | Yes | Reasoning always on |
-| Kimi K2.6 NVFP4 | `nvidia/Kimi-K2.6-NVFP4` | Yes | Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass) |
 | Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass) |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | Llama 3.3 70B Instruct | `meta-llama/Llama-3.3-70B-Instruct` | No |  |
