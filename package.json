@@ -8,6 +8,8 @@
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
     "check": "echo 'nothing to check'",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "update-models": "node scripts/update-models.js"
   },
   "keywords": [
@@ -37,5 +39,8 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "devDependencies": {
+    "vitest": "^4.1.9"
   }
 }

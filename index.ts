@@ -133,6 +133,11 @@ interface PatchEntry {
 
 type PatchMap = Record<string, PatchEntry>;
 
+/** Type guard: non-null, non-array object. */
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 // Patch Application
 
 function applyPatch(model: JsonModel, patch: PatchEntry): JsonModel {
@@ -266,6 +271,79 @@ function rewriteVllmPayload(payload: Record<string, unknown>): Record<string, un
   return p;
 }
 
+/**
+ * GLM models on Makora's vLLM crash with a leaked Python AttributeError
+ * (`'list object' has no attribute 'items'` or `'str object' has no attribute 'items'`)
+ * when any assistant message in the request contains a `tool_calls` field.
+ * The ZAI/vLLM chat template calls `.items()` on the tool_calls list (or on the
+ * JSON-string `arguments` field), which raises AttributeError and leaks into the
+ * HTTP 400 response body.
+ *
+ * Fix: for GLM models, strip `tool_calls` from assistant messages in the
+ * before_provider_request hook and convert them back to GLM's native
+ * `<tool_call>` XML text in `content`. The model natively understands this
+ * format in conversation history, and the `role: "tool"` result messages that
+ * follow are rendered fine by the chat template's tool-observation branch.
+ *
+ * If upstream fixes both the streaming parser and the 500/400 crash, this
+ * transform becomes a harmless no-op (the XML text is still valid GLM input).
+ */
+
+export function toolCallToGlmXml(tc: Record<string, unknown>): string {
+  const fn = (isObject(tc.function) ? tc.function : {}) as Record<string, unknown>;
+  const name = typeof fn.name === "string" ? fn.name : "";
+  const argsStr = typeof fn.arguments === "string" ? fn.arguments : "{}";
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(argsStr) as Record<string, unknown>;
+  } catch {
+    args = {};
+  }
+  if (!isObject(args)) args = {};
+  const argLines = Object.entries(args).map(
+    ([key, value]) =>
+      `<arg_key>${key}</arg_key>\n<arg_value>${
+        typeof value === "string" ? value : JSON.stringify(value)
+      }</arg_value>`,
+  );
+  return `<tool_call>${name}\n${argLines.join("\n")}\n</tool_call>`;
+}
+
+export function stripGlmToolCalls(payload: Record<string, unknown>): Record<string, unknown> {
+  const messages = payload.messages;
+  if (!Array.isArray(messages)) return payload;
+
+  let modified = false;
+  const newMessages = messages.map((msg) => {
+    if (!isObject(msg)) return msg;
+    if (msg.role !== "assistant") return msg;
+
+    const toolCalls = msg.tool_calls;
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) return msg;
+
+    const xmlBlocks = toolCalls
+      .filter((tc): tc is Record<string, unknown> => isObject(tc))
+      .map(toolCallToGlmXml);
+    if (xmlBlocks.length === 0) return msg;
+
+    const toolCallText = xmlBlocks.join("\n");
+    // pi's openai-completions provider always serializes assistant content as a
+    // plain string, but guard against null/array content for robustness.
+    const existingContent = typeof msg.content === "string" ? msg.content : "";
+    const newContent = existingContent ? `${existingContent}\n${toolCallText}` : toolCallText;
+
+    modified = true;
+    const rest: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(msg)) {
+      if (k !== "tool_calls") rest[k] = v;
+    }
+    return { ...rest, content: newContent };
+  });
+
+  if (!modified) return payload;
+  return { ...payload, messages: newMessages };
+}
+
 export default function (pi: ExtensionAPI) {
   const embeddedModels = modelsData as JsonModel[];
   const customModels = customModelsData as JsonModel[];
@@ -285,7 +363,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_provider_request", (event) => {
     const payload = event.payload as Record<string, unknown> | undefined;
     if (!payload || typeof payload.model !== "string") return;
-    return rewriteVllmPayload(payload);
+
+    let result = rewriteVllmPayload(payload);
+    if (/glm/i.test(payload.model)) {
+      result = stripGlmToolCalls(result);
+    }
+    return result;
   });
 }
 
