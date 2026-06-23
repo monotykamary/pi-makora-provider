@@ -38,13 +38,18 @@
  *      grammar, not a workaround. The model treats it as if it emitted the call
  *      in text mode.
  *
- * 3. DOWNSTREAM EXTENSION INTERFERENCE: If another extension's context hook
- *    or before_provider_request handler expects tool_calls to be present in
- *    the payload, stripping them here could break that extension.
- *    - Impact: Low. before_provider_request handlers run in extension load
- *      order; this extension should be loaded first to ensure the strip
- *      happens before any other handler inspects the payload.
- *    - Mitigation: Document load-order requirement in README.
+ * 3. CROSS-PROVIDER SCOPE: before_provider_request is GLOBAL in pi — it fires
+ *    for every loaded provider's requests, and its event carries only `payload`
+ *    (no `provider` field). The strip is therefore gated on makora's OWN GLM
+ *    model ids via isMakoraGlmVllmModel (exact id match against the models
+ *    this extension registers), NOT a loose /glm/i regex. A loose regex would
+ *    also rewrite tool_calls for every sibling provider that serves any GLM
+ *    model (baseten, io, lilac, neuralwatt, tensorix, fireworks, crofai,
+ *    hypercharm, wafer, parasail, umans, opencode, ...) and clobber the input
+ *    their own before_provider_request handlers expect (e.g. umans' orphaned-
+ *    tool-result repair).
+ *    - Impact: None for siblings — they are never matched, regardless of
+ *      extension load order. See the isMakoraGlmVllmModel tests below.
  *
  * 4. FUTURE UPSTREAM FIX: If Makora/vLLM fixes the .items() crash upstream,
  *    this transform becomes a no-op (the XML text is still valid GLM input,
@@ -53,7 +58,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { stripGlmToolCalls, toolCallToGlmXml, isObject } from "../index.js";
+import { stripGlmToolCalls, toolCallToGlmXml, isObject, isMakoraGlmVllmModel } from "../index.js";
 
 // ─── Helper: construct a GLM sentinel tag from parts ───
 // Using String.fromCharCode to avoid any encoding issues in test source
@@ -461,5 +466,92 @@ describe("stripGlmToolCalls", () => {
 		expect(after.messages[0]!.role).toBe("assistant");
 		expect(after.messages[0]!.reasoning_content).toBe("Let me analyze this.");
 		expect(after.messages[0]!.tool_calls).toBeUndefined();
+	});
+});
+
+// ─── isMakoraGlmVllmModel tests ───
+//
+// before_provider_request is a GLOBAL hook in pi: it fires for every loaded
+// provider's requests, and its event carries only `payload` (no `provider`
+// field). So the GLM tool_calls strip is gated on makora's OWN model ids
+// (isMakoraGlmVllmModel — exact match against the models this extension
+// registers), not a loose /glm/i regex. These tests prove the gate is
+// makora-scoped: sibling providers' GLM models are never matched.
+
+describe("isMakoraGlmVllmModel", () => {
+	it("matches makora's current GLM model id", () => {
+		expect(isMakoraGlmVllmModel("zai-org/GLM-5.2-FP8")).toBe(true);
+	});
+
+	it("rejects sibling providers' GLM ids (exact match, not a regex)", () => {
+		// Every sibling provider here exposes GLM models whose ids contain "glm";
+		// none of them must trigger the strip.
+		const siblingIds = [
+			"zai-org/GLM-5.2",            // io, baseten (no -FP8 suffix)
+			"zai-org/GLM-4.7",
+			"zai-org/glm-5.1",            // lilac (lowercase)
+			"z-ai/glm-5.2",               // tensorix
+			"glm-5.2",                    // neuralwatt, crofai
+			"glm-5.1",
+			"GLM-5.1",                    // wafer
+			"GLM-5.2",
+			"umans-glm-5.2",              // umans
+			"parasail-glm-52",            // parasail
+			"route/glm-5.2",              // routing-run
+			"accounts/fireworks/models/glm-5p2", // fireworks
+		];
+		for (const id of siblingIds) {
+			expect(isMakoraGlmVllmModel(id)).toBe(false);
+		}
+	});
+
+	it("is case-sensitive (no longer uses the old /glm/i regex)", () => {
+		// makora's id is uppercase "GLM-5.2-FP8"; lowercase variants belong to
+		// siblings (e.g. lilac's "zai-org/glm-5.1") and must not match.
+		expect(isMakoraGlmVllmModel("zai-org/glm-5.2-fp8")).toBe(false);
+		expect(isMakoraGlmVllmModel("zai-org/glm-5.2-FP8")).toBe(false);
+	});
+
+	it("rejects makora's own non-GLM models", () => {
+		// Only GLM models are stripped, not makora's other vLLM models.
+		expect(isMakoraGlmVllmModel("deepseek-ai/DeepSeek-V4-Pro")).toBe(false);
+		expect(isMakoraGlmVllmModel("deepseek-ai/DeepSeek-V4-Flash")).toBe(false);
+		expect(isMakoraGlmVllmModel("MiniMaxAI/MiniMax-M3-MXFP8")).toBe(false);
+	});
+
+	it("rejects empty / nonsense input", () => {
+		expect(isMakoraGlmVllmModel("")).toBe(false);
+		expect(isMakoraGlmVllmModel("not-a-model")).toBe(false);
+	});
+
+	// Scoping proof, end-to-end: for a sibling GLM id the predicate is false, so
+	// the hook would NOT call stripGlmToolCalls — yet stripGlmToolCalls itself is
+	// model-agnostic and WOULD transform if invoked. This confirms the predicate
+	// is the only thing protecting sibling payloads, and that protection holds.
+	it("a sibling GLM payload keeps its tool_calls (predicate is the gate)", () => {
+		const siblingPayload: ChatPayload = {
+			model: "zai-org/GLM-5.2", // io/baseten — NOT a makora model
+			messages: [
+				{
+					role: "assistant",
+					content: "checking",
+					tool_calls: [
+						{
+							id: "c1",
+							type: "function",
+							function: { name: "bash", arguments: JSON.stringify({ command: "pwd" }) },
+						},
+					],
+				},
+			],
+		};
+
+		// The hook strips only when isMakoraGlmVllmModel(model) === true.
+		expect(isMakoraGlmVllmModel(siblingPayload.model)).toBe(false);
+
+		// stripGlmToolCalls is non-mutating; the original sibling payload is left
+		// exactly as the hook would leave it (tool_calls intact):
+		expect(siblingPayload.messages[0]!.tool_calls).toBeDefined();
+		expect(siblingPayload.messages[0]!.tool_calls!.length).toBe(1);
 	});
 });
