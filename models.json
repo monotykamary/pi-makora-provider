@@ -159,7 +159,7 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 980000,
+    "contextWindow": 1048576,
     "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
