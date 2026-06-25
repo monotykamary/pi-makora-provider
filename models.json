@@ -63,27 +63,6 @@
     }
   },
   {
-    "id": "MiniMaxAI/MiniMax-M3-MXFP8",
-    "name": "MiniMax M3 MXFP8",
-    "reasoning": false,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1048576,
-    "maxTokens": 0,
-    "compat": {
-      "supportsDeveloperRole": false,
-      "supportsStore": false,
-      "maxTokensField": "max_completion_tokens"
-    }
-  },
-  {
     "id": "moonshotai/Kimi-K2.7-Code",
     "name": "Kimi K2.7 Code",
     "reasoning": false,
@@ -160,6 +139,27 @@
       "cacheWrite": 0
     },
     "contextWindow": 1048576,
+    "maxTokens": 0,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  {
+    "id": "zai-org/GLM-5.2-NVFP4",
+    "name": "GLM 5.2 NVFP4",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 980000,
     "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
