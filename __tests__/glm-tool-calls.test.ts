@@ -58,7 +58,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { stripGlmToolCalls, toolCallToGlmXml, isObject, isMakoraGlmVllmModel } from "../index.js";
+import { stripGlmToolCalls, toolCallToGlmXml, isObject, isMakoraGlmVllmModel, setGlmToolStream } from "../index.js";
 
 // ─── Helper: construct a GLM sentinel tag from parts ───
 // Using String.fromCharCode to avoid any encoding issues in test source
@@ -481,6 +481,7 @@ describe("stripGlmToolCalls", () => {
 describe("isMakoraGlmVllmModel", () => {
 	it("matches makora's current GLM model id", () => {
 		expect(isMakoraGlmVllmModel("zai-org/GLM-5.2-FP8")).toBe(true);
+		expect(isMakoraGlmVllmModel("zai-org/GLM-5.2-NVFP4")).toBe(true);
 	});
 
 	it("rejects sibling providers' GLM ids (exact match, not a regex)", () => {
@@ -553,5 +554,39 @@ describe("isMakoraGlmVllmModel", () => {
 		// exactly as the hook would leave it (tool_calls intact):
 		expect(siblingPayload.messages[0]!.tool_calls).toBeDefined();
 		expect(siblingPayload.messages[0]!.tool_calls!.length).toBe(1);
+	});
+});
+
+// ─── setGlmToolStream tests ───
+//
+// GLM models on Makora's vLLM stream tool calls unreliably: the streaming
+// parser omits delta.tool_calls (finish_reason "tool_calls" with an empty
+// delta), so the aggregated tool call arrives with empty arguments {} and pi
+// rejects it ("command: must have required properties command"). The hook
+// calls setGlmToolStream for every isMakoraGlmVllmModel id to send
+// tool_stream: true, which forces vLLM's explicit tool-streaming path.
+
+describe("setGlmToolStream", () => {
+	it("sets tool_stream: true on the payload", () => {
+		const out = setGlmToolStream({
+			model: "zai-org/GLM-5.2-FP8",
+			messages: [],
+		} as unknown as Record<string, unknown>);
+		expect(out.tool_stream).toBe(true);
+	});
+
+	it("preserves the rest of the payload and returns a new object (no mutation)", () => {
+		const payload = {
+			model: "zai-org/GLM-5.2-FP8",
+			messages: [{ role: "user", content: "hi" }],
+			stream: true,
+		} as unknown as Record<string, unknown>;
+		const out = setGlmToolStream(payload);
+		expect(out).not.toBe(payload);
+		expect(out.stream).toBe(true);
+		expect(Array.isArray(out.messages)).toBe(true);
+		expect(out.tool_stream).toBe(true);
+		// original input is not mutated
+		expect(payload.tool_stream).toBeUndefined();
 	});
 });

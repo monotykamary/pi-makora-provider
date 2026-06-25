@@ -37,7 +37,9 @@
  *   - GLM 5.2 FP8: reasoning via chat_template_kwargs.enable_thinking.
  *     Thinking levels (minimal/low/medium/high/max) are copied from the
  *     neuralwatt provider's GLM 5.2 configuration and mapped through pi's
- *     qwen-chat-template thinkingFormat.
+ *     qwen-chat-template thinkingFormat. Same vLLM streaming-parser issue as
+ *     GLM 5.1 (delta.tool_calls omitted, finish_reason "tool_calls" with an
+ *     empty delta → empty arguments); setGlmToolStream sends tool_stream: true.
  *   - GPT-OSS 120B: reasoning always on; returns `reasoning` field.
  *   - Kimi K2.6 NVFP4 / Kimi K2.7 Code: reasoning always on by default;
  *     returns `reasoning` field. Can be toggled via enable_thinking.
@@ -377,6 +379,25 @@ export function stripGlmToolCalls(payload: Record<string, unknown>): Record<stri
   return { ...payload, messages: newMessages };
 }
 
+/**
+ * GLM models on Makora's vLLM stream tool calls unreliably: the streaming
+ * parser omits `delta.tool_calls`, finishing with `finish_reason:
+ * "tool_calls"` but an empty delta, so the aggregated tool call arrives with
+ * empty `arguments` (pi then rejects it: "command: must have required
+ * properties command"). Setting `tool_stream: true` in the request forces
+ * vLLM's explicit tool-streaming path, which emits tool-call chunks with
+ * populated arguments.
+ *
+ * Gated on makora's GLM model ids via isMakoraGlmVllmModel (the same gate as
+ * stripGlmToolCalls): the .items() crash and the empty-delta streaming bug
+ * are both vLLM ZAI-chat-template issues affecting the same model set, and
+ * all makora models run on vLLM. If upstream vLLM fixes either, both
+ * transforms become no-ops and can be removed together. Exported for testing.
+ */
+export function setGlmToolStream(payload: Record<string, unknown>): Record<string, unknown> {
+  return { ...payload, tool_stream: true };
+}
+
 export default function (pi: ExtensionAPI) {
   const models = allMakoraModels;
 
@@ -396,6 +417,7 @@ export default function (pi: ExtensionAPI) {
     let result = rewriteVllmPayload(payload);
     if (isMakoraGlmVllmModel(payload.model)) {
       result = stripGlmToolCalls(result);
+      result = setGlmToolStream(result);
     }
     return result;
   });
