@@ -24,7 +24,6 @@ _DeepSeek V4, Kimi K2.6, GLM 5.1, Qwen 3.6 — with client-side tool call repair
 | GLM 5.2 NVFP4 | `zai-org/GLM-5.2-NVFP4` | No |  |
 | Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass) |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
-| Llama 3.3 70B Instruct | `meta-llama/Llama-3.3-70B-Instruct` | No |  |
 | Qwen 3.6 27B NVFP4 | `unsloth/Qwen3.6-27B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass) |
 | Qwen 3.6 35B A3B NVFP4 | `unsloth/Qwen3.6-35B-A3B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass) |
 <!-- MODELS_TABLE_END -->
