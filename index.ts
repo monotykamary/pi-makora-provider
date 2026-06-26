@@ -25,30 +25,18 @@
  *     chat_template_kwargs: { thinking: true }.
  *     include_reasoning alone returns reasoning: null on this vLLM build.
  *     Returns reasoning field.
- *   - GLM 5.1 FP8: reasoning via chat_template_kwargs.enable_thinking.
- *     NOTE: vLLM may leak chain-of-thought into content instead of the
- *     reasoning field on some builds. See
- *     https://github.com/vllm-project/vllm/issues/31319
- *     Also: vLLM's streaming parser omits delta.tool_calls when the model
- *     calls tools, finishing with finish_reason: "tool_calls" but an empty
- *     delta. Setting zaiToolStream: true sends tool_stream: true in the
- *     request, which forces vLLM to use the explicit tool streaming path
- *     that correctly emits tool call chunks.
  *   - GLM 5.2 FP8 / NVFP4: reasoning via chat_template_kwargs.enable_thinking.
  *     Effort uses vLLM's reasoning_effort field (only `high` and `max` are
  *     distinct levels per the vLLM GLM-5.2 recipe; lower pi levels resolve to
  *     the default). Thinking levels aligned with the neuralwatt provider's
  *     GLM 5.2 configuration and mapped through pi's qwen-chat-template
  *     thinkingFormat. Returns `reasoning` field.
- *   - GPT-OSS 120B: reasoning always on; returns `reasoning` field.
  *   - Kimi K2.7 Code: reasoning always on (thinking-only model);
  *     chatTemplateKwargs.preserve_thinking forces multi-turn reasoning
  *     continuity. Returns `reasoning` field. Can be toggled via enable_thinking.
  *   - Qwen 3.6 models: reasoning via chat_template_kwargs.enable_thinking;
  *     chatTemplateKwargs.preserve_thinking for multi-turn continuity.
  *     Returns `reasoning` field.
- *   - MiniMax M3 MXFP8: reasoning via chat_template_kwargs.enable_thinking;
- *     returns reasoning_content field.
  *   - Llama 3.3 70B: not a reasoning model.
  *
  * Developer role is NOT supported by any of the chat templates on Makora's
@@ -226,10 +214,8 @@ const BASE_URL = "https://inference.makora.com/v1";
 
 const DS_PRO_ID = "deepseek-ai/DeepSeek-V4-Pro";
 const DS_FLASH_ID = "deepseek-ai/DeepSeek-V4-Flash";
-const MINIMAX_M3_ID = "MiniMaxAI/MiniMax-M3-MXFP8";
 
 const DS_VLLM_MODELS = new Set([DS_PRO_ID, DS_FLASH_ID]);
-const ENABLE_THINKING_VLLM_MODELS = new Set([MINIMAX_M3_ID]);
 
 /**
  * Makora's GLM models, built from the same models list this extension
@@ -274,8 +260,6 @@ export function isMakoraGlmVllmModel(model: string): boolean {
  *   - DS V4 Flash: `include_reasoning: true` + `chat_template_kwargs: { thinking: true }`
  *     + `reasoning_effort`. `include_reasoning` alone returns `reasoning: null`
  *     on this vLLM build — both params are required.
- *   - MiniMax M3: `chat_template_kwargs: { enable_thinking: true }` +
- *     `reasoning_effort`. Returns `reasoning_content` field.
  *
  * This hook rewrites the payload accordingly.
  */
@@ -301,11 +285,6 @@ function rewriteVllmPayload(payload: Record<string, unknown>): Record<string, un
       const ctq = (p.chat_template_kwargs as Record<string, unknown>) ?? {};
       p.chat_template_kwargs = { ...ctq, thinking: true };
     }
-  } else if (ENABLE_THINKING_VLLM_MODELS.has(model)) {
-    // Models using chat_template_kwargs.enable_thinking (e.g. MiniMax M3)
-    delete p.thinking;
-    const ctq = (p.chat_template_kwargs as Record<string, unknown>) ?? {};
-    p.chat_template_kwargs = { ...ctq, enable_thinking: true };
   }
 
   return p;

@@ -30,34 +30,6 @@
       "requiresReasoningContentOnAssistantMessages": true
     }
   },
-  "nvidia/Kimi-K2.6-NVFP4": {
-    "reasoning": true,
-    "input": [
-      "text",
-      "image"
-    ],
-    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
-    "thinkingLevelMap": {
-      "minimal": "low",
-      "xhigh": "high"
-    },
-    "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
-    }
-  },
-  "openai/gpt-oss-120b": {
-    "reasoning": true,
-    "notes": "Reasoning always on",
-    "thinkingLevelMap": {
-      "minimal": "low",
-      "xhigh": "high"
-    },
-    "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
-    }
-  },
   "unsloth/Qwen3.6-27B-NVFP4": {
     "reasoning": true,
     "notes": "`enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass)",
@@ -88,26 +60,6 @@
       }
     }
   },
-  "MiniMaxAI/MiniMax-M3-MXFP8": {
-    "reasoning": true,
-    "input": [
-      "text",
-      "image"
-    ],
-    "notes": "Reasoning via `chat_template_kwargs.enable_thinking`; returns `reasoning_content` field",
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": "max"
-    },
-    "compat": {
-      "thinkingFormat": "deepseek",
-      "supportsReasoningEffort": true,
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
   "moonshotai/Kimi-K2.7-Code": {
     "reasoning": true,
     "input": [
@@ -125,20 +77,6 @@
       "chatTemplateKwargs": {
         "preserve_thinking": true
       }
-    }
-  },
-  "zai-org/GLM-5.1-FP8": {
-    "contextWindow": 200000,
-    "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; returns `reasoning_content` field; client-side tool call parsing (vLLM streaming parser bypass)",
-    "thinkingLevelMap": {
-      "minimal": "low",
-      "xhigh": "high"
-    },
-    "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true,
-      "zaiToolStream": true
     }
   },
   "zai-org/GLM-5.2-FP8": {
