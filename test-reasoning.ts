@@ -33,7 +33,7 @@ const MODELS: ModelSpec[] = [
   {
     id: "deepseek-ai/DeepSeek-V4-Pro",
     name: "DeepSeek V4 Pro",
-    reasoningResponseField: "reasoning_content",
+    reasoningResponseField: "reasoning",
     buildPayload: (messages) => ({
       model: "deepseek-ai/DeepSeek-V4-Pro",
       messages,
@@ -58,22 +58,9 @@ const MODELS: ModelSpec[] = [
     }),
   },
   {
-    id: "zai-org/GLM-5.1-FP8",
-    name: "GLM 5.1 FP8",
-    reasoningResponseField: "reasoning_content",
-    buildPayload: (messages) => ({
-      model: "zai-org/GLM-5.1-FP8",
-      messages,
-      max_tokens: 1024,
-      stream: false,
-      // Mimics qwen-chat-template thinkingFormat
-      chat_template_kwargs: { enable_thinking: true },
-    }),
-  },
-  {
     id: "zai-org/GLM-5.2-FP8",
     name: "GLM 5.2 FP8",
-    reasoningResponseField: "reasoning_content",
+    reasoningResponseField: "reasoning",
     buildPayload: (messages) => ({
       model: "zai-org/GLM-5.2-FP8",
       messages,
@@ -84,11 +71,11 @@ const MODELS: ModelSpec[] = [
     }),
   },
   {
-    id: "openai/gpt-oss-120b",
-    name: "GPT-OSS 120B",
+    id: "zai-org/GLM-5.2-NVFP4",
+    name: "GLM 5.2 NVFP4",
     reasoningResponseField: "reasoning",
     buildPayload: (messages) => ({
-      model: "openai/gpt-oss-120b",
+      model: "zai-org/GLM-5.2-NVFP4",
       messages,
       max_tokens: 1024,
       stream: false,
@@ -97,16 +84,16 @@ const MODELS: ModelSpec[] = [
     }),
   },
   {
-    id: "nvidia/Kimi-K2.6-NVFP4",
-    name: "Kimi K2.6 NVFP4",
+    id: "moonshotai/Kimi-K2.7-Code",
+    name: "Kimi K2.7 Code",
     reasoningResponseField: "reasoning",
     buildPayload: (messages) => ({
-      model: "nvidia/Kimi-K2.6-NVFP4",
+      model: "moonshotai/Kimi-K2.7-Code",
       messages,
       max_tokens: 1024,
       stream: false,
-      // Mimics qwen-chat-template thinkingFormat
-      chat_template_kwargs: { enable_thinking: true },
+      // Mimics qwen-chat-template thinkingFormat + chatTemplateKwargs.preserve_thinking
+      chat_template_kwargs: { enable_thinking: true, preserve_thinking: true },
     }),
   },
   {
@@ -118,8 +105,8 @@ const MODELS: ModelSpec[] = [
       messages,
       max_tokens: 1024,
       stream: false,
-      // Mimics qwen-chat-template thinkingFormat
-      chat_template_kwargs: { enable_thinking: true },
+      // Mimics qwen-chat-template thinkingFormat + chatTemplateKwargs.preserve_thinking
+      chat_template_kwargs: { enable_thinking: true, preserve_thinking: true },
     }),
   },
   {
@@ -131,8 +118,8 @@ const MODELS: ModelSpec[] = [
       messages,
       max_tokens: 1024,
       stream: false,
-      // Mimics qwen-chat-template thinkingFormat
-      chat_template_kwargs: { enable_thinking: true },
+      // Mimics qwen-chat-template thinkingFormat + chatTemplateKwargs.preserve_thinking
+      chat_template_kwargs: { enable_thinking: true, preserve_thinking: true },
     }),
   },
 ];

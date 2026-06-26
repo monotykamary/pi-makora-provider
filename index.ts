@@ -17,7 +17,7 @@
  *     pi sends thinking: { type } via the "deepseek" thinkingFormat, but vLLM
  *     ignores that — the before_provider_request hook rewrites the payload to
  *     use chat_template_kwargs: { thinking: true } instead.
- *     Returns reasoning_content field.
+ *     Returns reasoning field (vLLM reasoning parser; not reasoning_content).
  *   - DeepSeek V4 Flash: reasoning via include_reasoning +
  *     chat_template_kwargs.thinking on vLLM.
  *     The before_provider_request hook rewrites the payload to replace
@@ -34,15 +34,19 @@
  *     delta. Setting zaiToolStream: true sends tool_stream: true in the
  *     request, which forces vLLM to use the explicit tool streaming path
  *     that correctly emits tool call chunks.
- *   - GLM 5.2 FP8: reasoning via chat_template_kwargs.enable_thinking.
- *     Thinking levels (minimal/low/medium/high/max) are copied from the
- *     neuralwatt provider's GLM 5.2 configuration and mapped through pi's
- *     qwen-chat-template thinkingFormat.
+ *   - GLM 5.2 FP8 / NVFP4: reasoning via chat_template_kwargs.enable_thinking.
+ *     Effort uses vLLM's reasoning_effort field (only `high` and `max` are
+ *     distinct levels per the vLLM GLM-5.2 recipe; lower pi levels resolve to
+ *     the default). Thinking levels aligned with the neuralwatt provider's
+ *     GLM 5.2 configuration and mapped through pi's qwen-chat-template
+ *     thinkingFormat. Returns `reasoning` field.
  *   - GPT-OSS 120B: reasoning always on; returns `reasoning` field.
- *   - Kimi K2.6 NVFP4 / Kimi K2.7 Code: reasoning always on by default;
- *     returns `reasoning` field. Can be toggled via enable_thinking.
+ *   - Kimi K2.7 Code: reasoning always on (thinking-only model);
+ *     chatTemplateKwargs.preserve_thinking forces multi-turn reasoning
+ *     continuity. Returns `reasoning` field. Can be toggled via enable_thinking.
  *   - Qwen 3.6 models: reasoning via chat_template_kwargs.enable_thinking;
- *     returns `reasoning` field.
+ *     chatTemplateKwargs.preserve_thinking for multi-turn continuity.
+ *     Returns `reasoning` field.
  *   - MiniMax M3 MXFP8: reasoning via chat_template_kwargs.enable_thinking;
  *     returns reasoning_content field.
  *   - Llama 3.3 70B: not a reasoning model.
@@ -109,6 +113,10 @@ interface JsonModel {
     requiresToolResultName?: boolean;
     requiresAssistantAfterToolResult?: boolean;
     cacheControlFormat?: "anthropic";
+    /** Extra keys merged into vLLM `chat_template_kwargs` on every request.
+     *  Used for preserved-thinking flags like `preserve_thinking` / `clear_thinking`
+     *  that some chat templates require for multi-turn reasoning continuity. */
+    chatTemplateKwargs?: Record<string, unknown>;
   };
 }
 

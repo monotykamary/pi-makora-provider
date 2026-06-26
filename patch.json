@@ -16,7 +16,7 @@
   },
   "deepseek-ai/DeepSeek-V4-Pro": {
     "reasoning": true,
-    "notes": "`chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning_content` field",
+    "notes": "`chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": null,
       "low": null,
@@ -60,26 +60,32 @@
   },
   "unsloth/Qwen3.6-27B-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "`enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass)",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
     },
     "compat": {
       "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
     }
   },
   "unsloth/Qwen3.6-35B-A3B-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "`enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass)",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
     },
     "compat": {
       "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
     }
   },
   "MiniMaxAI/MiniMax-M3-MXFP8": {
@@ -108,14 +114,17 @@
       "text",
       "image"
     ],
-    "notes": "Reasoning on by default; client-side tool call parsing (vLLM streaming parser bypass)",
+    "notes": "Reasoning on by default (thinking-only model); `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass)",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
     },
     "compat": {
       "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
     }
   },
   "zai-org/GLM-5.1-FP8": {
@@ -134,11 +143,26 @@
   },
   "zai-org/GLM-5.2-FP8": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; thinking levels copied from neuralwatt GLM 5.2; returns `reasoning_content` field",
+    "notes": "`enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); thinking levels aligned with neuralwatt GLM 5.2; returns `reasoning` field",
     "thinkingLevelMap": {
-      "minimal": "minimal",
-      "low": "low",
-      "medium": "medium",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": "max"
+    },
+    "compat": {
+      "thinkingFormat": "qwen-chat-template",
+      "supportsReasoningEffort": true
+    }
+  },
+  "zai-org/GLM-5.2-NVFP4": {
+    "reasoning": true,
+    "notes": "`enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); returns `reasoning` field",
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": null,
       "high": "high",
       "xhigh": "max"
     },

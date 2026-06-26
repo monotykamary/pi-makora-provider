@@ -1,7 +1,7 @@
 {
   "name": "pi-makora-provider",
-  "version": "1.1.0",
-  "description": "Makora provider extension for pi - Access DeepSeek V4, GLM 5.1, Kimi K2.6, Llama 3.3, Qwen 3.6, and more through the Makora inference API",
+  "version": "1.2.0",
+  "description": "Makora provider extension for pi - Access DeepSeek V4, GLM 5.2, Kimi K2.7 Code, Llama 3.3, Qwen 3.6, and more through the Makora inference API",
   "type": "module",
   "main": "index.ts",
   "scripts": {
