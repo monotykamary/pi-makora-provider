@@ -4,7 +4,7 @@
 
 **Open-weight models through [Makora](https://inference.makora.com)**
 
-_DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 — with client-side tool call repair and preserved-thinking flags for [pi](https://github.com/earendil-works/pi-coding-agent)._
+_DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 for [pi](https://github.com/earendil-works/pi-coding-agent)._
 
 [![pi extension](https://img.shields.io/badge/pi-extension-blueviolet)](https://github.com/earendil-works/pi-coding-agent)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
@@ -18,15 +18,15 @@ _DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 — with client-side tool call r
 <!-- MODELS_TABLE_START -->
 | Model | ID | Reasoning | Notes |
 |-------|----|-----------|-------|
-| DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | `include_reasoning` + `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning` field |
-| DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | `chat_template_kwargs.thinking` via `before_provider_request` payload rewrite; returns `reasoning` field |
+| DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | returns `reasoning` field |
+| DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | returns `reasoning` field |
 | GLM 5.2 FP8 | `zai-org/GLM-5.2-FP8` | Yes | `enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); thinking levels aligned with neuralwatt GLM 5.2; returns `reasoning` field |
 | GLM 5.2 NVFP4 | `zai-org/GLM-5.2-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); returns `reasoning` field |
-| Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | Reasoning on by default (thinking-only model); `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass) |
+| Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | Reasoning on by default (thinking-only model); `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | Llama 3.3 70B Instruct | `meta-llama/Llama-3.3-70B-Instruct` | No |  |
-| Qwen 3.6 27B NVFP4 | `unsloth/Qwen3.6-27B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass) |
-| Qwen 3.6 35B A3B NVFP4 | `unsloth/Qwen3.6-35B-A3B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field; client-side tool call parsing (vLLM streaming parser bypass) |
+| Qwen 3.6 27B NVFP4 | `unsloth/Qwen3.6-27B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field |
+| Qwen 3.6 35B A3B NVFP4 | `unsloth/Qwen3.6-35B-A3B-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field |
 <!-- MODELS_TABLE_END -->
 
 ## Installation
@@ -156,24 +156,3 @@ Do **not** edit `models.json` directly — it is auto-generated from the API. To
 - The API is OpenAI-compatible (chat completions format)
 - All models are hosted on vLLM
 - The `developer` role is not supported (prompts are silently dropped); `supportsDeveloperRole` is set to `false` for all models
-
-## vLLM Caveats
-
-These issues are common to all vLLM-hosted providers and affect Makora models:
-
-- **GLM tool calls — follow-up `tool_calls` crash workaround**: the ZAI chat template calls `.items()` on any assistant message that carries a `tool_calls` field (on the `tool_calls` list or on its JSON-string `arguments` field), raising a leaked Python `AttributeError` that vLLM returns as HTTP 400 (`'list object' has no attribute 'items'` / `'str object' has no attribute 'items'`). The `before_provider_request` hook (`stripGlmToolCalls`) strips `tool_calls` from assistant messages and converts them to GLM-native `<tool_call>` XML text in `content` — which the model natively understands in conversation history — before the follow-up request is sent. The hook is scoped to Makora's own GLM models via an exact model-id match (`isMakoraGlmVllmModel`): `before_provider_request` is global in pi (it fires for every loaded provider's requests and the event carries no `provider` field), so gating by model id is what keeps it from touching GLM models served by other providers. If upstream fixes the `.items()` crash, this transform is a harmless no-op (the XML text is valid GLM input either way).
-
-- **Kimi K2.7 Code + Qwen 3.6 tool calling**: vLLM's server-side streaming tool-call handling is broken or missing for these models — Makora's vLLM is missing both `--enable-auto-tool-choice` and `--tool-call-parser` for them, so they emit tool calls as raw text tokens rather than structured `tool_call` deltas.
-
-    - **Kimi K2.7 Code**: Uses `<|tool_call_begin|>...<|tool_call_end|>` tokens.
-    - **Qwen 3.6**: Uses hermes-style `<function=...>` XML, sometimes with `█` delimiters.
-
-- **GLM 5.2 CoT leak**: On some vLLM builds, disabling reasoning may still leak chain-of-thought into `content` terminated by a ``` marker. See [vllm-project/vllm#31319](https://github.com/vllm-project/vllm/issues/31319).
-
-- **DeepSeek V4 reasoning**: The official DeepSeek API uses `thinking: { type: "enabled" }` which Makora's vLLM silently ignores. The `before_provider_request` hook rewrites the payload to use vLLM-native params instead:
-  - **DS V4 Pro**: `chat_template_kwargs: { thinking: true }`. Returns `reasoning` (vLLM reasoning parser; the official DeepSeek API returns `reasoning_content`, but Makora's vLLM build returns `reasoning`).
-  - **DS V4 Flash**: `include_reasoning: true` + `chat_template_kwargs: { thinking: true }`. `include_reasoning` alone returns `reasoning: null` on this vLLM build — both params are required. Returns `reasoning`.
-- **Preserved thinking (multi-turn reasoning continuity)**: every reasoning model on Makora returns reasoning in the `reasoning` field (not `reasoning_content`). Pi sends prior assistant reasoning back on follow-up turns; Makora's vLLM chat templates accept it under either `reasoning` or `reasoning_content`. For models whose chat template defines an explicit preserved-thinking flag, the flag is sent via `compat.chatTemplateKwargs`:
-  - **Kimi K2.7 Code**: `preserve_thinking: true` (the model forces thinking-only mode with preserve_thinking on, per the vLLM recipe).
-  - **Qwen 3.6 27B / 35B**: `preserve_thinking: true` (Qwen 3.6 ships with preserve_thinking).
-  - **GLM 5.2**: no extra flag — the vLLM GLM-5.2 recipe uses only `enable_thinking` + `reasoning_effort`; preserved thinking works without a dedicated flag. Effort honors only `high` and `max` (lower pi levels resolve to the default `max`).
