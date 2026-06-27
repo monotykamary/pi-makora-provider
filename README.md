@@ -20,6 +20,7 @@ _DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 for [pi](https://github.com/eare
 |-------|----|-----------|-------|
 | DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | returns `reasoning` field |
 | DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | returns `reasoning` field |
+| Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | No |  |
 | GLM 5.2 FP8 | `zai-org/GLM-5.2-FP8` | Yes | `enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); thinking levels aligned with neuralwatt GLM 5.2; returns `reasoning` field |
 | GLM 5.2 NVFP4 | `zai-org/GLM-5.2-NVFP4` | Yes | `enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); returns `reasoning` field |
 | Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | Reasoning on by default (thinking-only model); `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field |
