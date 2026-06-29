@@ -29,6 +29,7 @@
   "license": "MIT",
   "files": [
     "index.ts",
+    "death-loop-guard.ts",
     "models.json",
     "custom-models.json",
     "patch.json",
@@ -41,6 +42,8 @@
     ]
   },
   "devDependencies": {
+    "@earendil-works/pi-agent-core": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.80.2",
     "vitest": "^4.1.9"
   }
 }

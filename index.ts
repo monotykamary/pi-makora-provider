@@ -20,6 +20,12 @@
  *   - Qwen 3.6 models: returns `reasoning` field.
  *   - Llama 3.3 70B: not a reasoning model.
  *
+ * A death-loop guard (see ./death-loop-guard.ts) is registered alongside the
+ * provider. It watches the assistant text stream on the GLM 5.2 family and,
+ * if the model falls into an unbroken '!' repetition loop, aborts the runaway
+ * generation and resumes the agentic loop invisibly via agent.prompt([]) (the
+ * pi-invisible-continue pattern) — no new user message is injected.
+ *
  * Developer role is NOT supported by any of the chat templates on Makora's
  * vLLM deployment (prompts with role: "developer" are silently dropped).
  * supportsDeveloperRole is set to false for all models.
@@ -42,6 +48,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };
+import { registerDeathLoopGuard } from "./death-loop-guard.js";
 
 // Types
 
@@ -205,4 +212,8 @@ export default function (pi: ExtensionAPI) {
     api: "openai-completions",
     models,
   });
+
+  // Abort runaway '!' repetition loops on the GLM 5.2 family and resume the
+  // agentic loop invisibly (no new user message). See ./death-loop-guard.ts.
+  registerDeathLoopGuard(pi);
 }

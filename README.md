@@ -157,3 +157,33 @@ Do **not** edit `models.json` directly — it is auto-generated from the API. To
 - The API is OpenAI-compatible (chat completions format)
 - All models are hosted on vLLM
 - The `developer` role is not supported (prompts are silently dropped); `supportsDeveloperRole` is set to `false` for all models
+
+## Death-Loop Guard
+
+GLM 5.2 (NVFP4 / FP8) occasionally degenerates into an unbroken `!` repetition
+loop (`!!!!...`) that eats the whole response. This extension ships a guard
+that watches the streamed assistant output (both the visible answer and the
+reasoning trace) and, when it detects a long run of `!` characters, **aborts
+the runaway generation and resumes the agentic loop invisibly** — no new user
+message is injected, using the
+[pi-invisible-continue](https://github.com/monotykamary/pi-invisible-continue)
+pattern (`agent.prompt([])`).
+
+On abort, pi finalizes the in-flight assistant message **with its accumulated
+`!!!` content** into the transcript, so the guard drops that partial message
+before resuming — otherwise the model would just re-read its own `!!!` and loop
+again. The recovery is bounded per prompt (default 3 attempts) to avoid
+abort/continue thrash.
+
+The guard is scoped to the Makora GLM 5.2 family by default and is tunable via
+constants at the top of [`death-loop-guard.ts`](./death-loop-guard.ts):
+
+| Constant | Default | Meaning |
+|---|---|---|
+| `GUARDED_MODEL_IDS` | `zai-org/GLM-5.2-NVFP4`, `zai-org/GLM-5.2-FP8` | Which model IDs to guard. Add `'*'` to guard every Makora model. |
+| `BANG_THRESHOLD` | `40` | Consecutive `!` characters that trip the guard. 40 is far above anything normal prose/code produces. |
+| `MAX_RECOVERS_PER_RUN` | `3` | Max invisible recoveries per user prompt before the guard stops intervening. |
+
+It is only active for the `makora` provider, so it never interferes when you
+switch to another provider. If you also run `pi-invisible-continue`, the two
+coexist — both chain the `Agent.prototype.subscribe` patch.
