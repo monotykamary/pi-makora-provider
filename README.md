@@ -172,8 +172,13 @@ pattern (`agent.prompt([])`).
 On abort, pi finalizes the in-flight assistant message **with its accumulated
 `!!!` content** into the transcript, so the guard drops that partial message
 before resuming — otherwise the model would just re-read its own `!!!` and loop
-again. The recovery is bounded per prompt (default 3 attempts) to avoid
-abort/continue thrash.
+again. Recovery retries **indefinitely with exponential backoff (2s→60s,
+2×)**, like [pi-retry](https://github.com/monotykamary/pi-retry) — long-horizon
+agent work can trip the loop many times in a session, so a retry cap would
+strand the agent mid-task. The loop exits only on a clean turn, a user abort
+(Esc), or a session change (`/new`, `/resume`). Backoff is interruptible
+(polls every 100ms) so Esc and `/new` take effect within 100ms instead of
+waiting out the full delay.
 
 The guard is scoped to the Makora GLM 5.2 family by default and is tunable via
 constants at the top of [`death-loop-guard.ts`](./death-loop-guard.ts):
@@ -182,7 +187,9 @@ constants at the top of [`death-loop-guard.ts`](./death-loop-guard.ts):
 |---|---|---|
 | `GUARDED_MODEL_IDS` | `zai-org/GLM-5.2-NVFP4`, `zai-org/GLM-5.2-FP8` | Which model IDs to guard. Add `'*'` to guard every Makora model. |
 | `BANG_THRESHOLD` | `40` | Consecutive `!` characters that trip the guard. 40 is far above anything normal prose/code produces. |
-| `MAX_RECOVERS_PER_RUN` | `3` | Max invisible recoveries per user prompt before the guard stops intervening. |
+| `BACKOFF_BASE_MS` | `2000` | Initial recovery backoff delay. |
+| `BACKOFF_MAX_MS` | `60000` | Maximum backoff delay (cap). |
+| `BACKOFF_MULTIPLIER` | `2` | Backoff growth factor per retry. |
 
 It is only active for the `makora` provider, so it never interferes when you
 switch to another provider. If you also run `pi-invisible-continue`, the two

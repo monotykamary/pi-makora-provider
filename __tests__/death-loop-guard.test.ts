@@ -11,9 +11,14 @@
 import { describe, expect, it } from "vitest";
 import {
   BANG_THRESHOLD,
+  BACKOFF_BASE_MS,
+  BACKOFF_MAX_MS,
+  BACKOFF_MULTIPLIER,
+  DEFAULT_BACKOFF_CONFIG,
   GUARDED_MODEL_IDS,
-  MAX_RECOVERS_PER_RUN,
+  calculateDelay,
   extractText,
+  formatDuration,
   isGuardedModel,
   messageTrailingBangs,
   nextTrailingBangs,
@@ -26,13 +31,21 @@ describe("death-loop-guard config", () => {
     expect(GUARDED_MODEL_IDS.has("zai-org/GLM-5.2-FP8")).toBe(true);
   });
 
-  it("exports a sensible threshold and recovery cap", () => {
+  it("exports a sensible bang threshold", () => {
     expect(BANG_THRESHOLD).toBeGreaterThanOrEqual(20);
-    expect(MAX_RECOVERS_PER_RUN).toBeGreaterThanOrEqual(1);
   });
 
   it("exports the guard registration function", () => {
     expect(typeof registerDeathLoopGuard).toBe("function");
+  });
+
+  it("retries are unbounded — no per-prompt cap is exported", () => {
+    // Long-horizon work must not be stranded by a retry cap. The guard
+    // mirrors pi-retry: infinite retries with backoff, exiting only on a
+    // clean turn, user abort (Esc), or session change (/new).
+    expect(BACKOFF_BASE_MS).toBeGreaterThan(0);
+    expect(BACKOFF_MAX_MS).toBeGreaterThanOrEqual(BACKOFF_BASE_MS);
+    expect(BACKOFF_MULTIPLIER).toBeGreaterThan(1);
   });
 });
 
@@ -126,6 +139,56 @@ describe("messageTrailingBangs", () => {
   it("returns 0 for empty or non-text content", () => {
     expect(messageTrailingBangs({ role: "assistant", content: "" })).toBe(0);
     expect(messageTrailingBangs({ role: "assistant", content: [{ type: "thinking", text: "!!!" }] })).toBe(0);
+  });
+});
+
+describe("calculateDelay", () => {
+  it("grows exponentially with the attempt number", () => {
+    expect(calculateDelay(1)).toBe(BACKOFF_BASE_MS);
+    expect(calculateDelay(2)).toBe(BACKOFF_BASE_MS * BACKOFF_MULTIPLIER);
+    expect(calculateDelay(3)).toBe(BACKOFF_BASE_MS * BACKOFF_MULTIPLIER ** 2);
+  });
+
+  it("is capped at BACKOFF_MAX_MS", () => {
+    const capped = calculateDelay(100);
+    expect(capped).toBe(BACKOFF_MAX_MS);
+    expect(calculateDelay(1000)).toBe(BACKOFF_MAX_MS);
+  });
+
+  it("honors a custom config", () => {
+    expect(
+      calculateDelay(3, { baseDelayMs: 100, maxDelayMs: 1000, multiplier: 3 }),
+    ).toBe(900);
+    expect(
+      calculateDelay(5, { baseDelayMs: 100, maxDelayMs: 1000, multiplier: 3 }),
+    ).toBe(1000);
+  });
+});
+
+describe("formatDuration", () => {
+  it("formats sub-second durations in ms", () => {
+    expect(formatDuration(500)).toBe("500ms");
+    expect(formatDuration(0)).toBe("0ms");
+  });
+
+  it("formats sub-minute durations in seconds", () => {
+    expect(formatDuration(2000)).toBe("2.0s");
+    expect(formatDuration(5500)).toBe("5.5s");
+  });
+
+  it("formats minute-plus durations as minutes and seconds", () => {
+    expect(formatDuration(60000)).toBe("1m 0s");
+    expect(formatDuration(90000)).toBe("1m 30s");
+  });
+});
+
+describe("DEFAULT_BACKOFF_CONFIG", () => {
+  it("mirrors pi-retry defaults", () => {
+    expect(DEFAULT_BACKOFF_CONFIG).toEqual({
+      baseDelayMs: 2000,
+      maxDelayMs: 60_000,
+      multiplier: 2,
+    });
   });
 });
 
