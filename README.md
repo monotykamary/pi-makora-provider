@@ -160,19 +160,21 @@ Do **not** edit `models.json` directly — it is auto-generated from the API. To
 
 ## Death-Loop Guard
 
-GLM 5.2 (NVFP4 / FP8) occasionally degenerates into an unbroken `!` repetition
-loop (`!!!!...`) that eats the whole response. This extension ships a guard
-that watches the streamed assistant output (both the visible answer and the
-reasoning trace) and, when it detects a long run of `!` characters, **aborts
+GLM 5.2 (NVFP4 / FP8) occasionally degenerates into a repetition loop — an
+unbroken run of a single character or token, spaced or not (observed: `!` →
+`!!!!...`, `0` → `0000...`, and `0` → `0 0 0 ...`) — that eats the whole
+response. This extension ships a guard that watches the streamed assistant
+output (both the visible answer and the reasoning trace) and, when it detects a
+long run of any one non-whitespace character **or token**, **aborts
 the runaway generation and resumes the agentic loop invisibly** — no new user
 message is injected, using the
 [pi-invisible-continue](https://github.com/monotykamary/pi-invisible-continue)
 pattern (`agent.prompt([])`).
 
 On abort, pi finalizes the in-flight assistant message **with its accumulated
-`!!!` content** into the transcript, so the guard drops that partial message
-before resuming — otherwise the model would just re-read its own `!!!` and loop
-again. Recovery retries **indefinitely with exponential backoff (2s→60s,
+repeated-character content** into the transcript, so the guard drops that
+partial message before resuming — otherwise the model would just re-read its
+own repeated text and loop again. Recovery retries **indefinitely with exponential backoff (2s→60s,
 2×)**, like [pi-retry](https://github.com/monotykamary/pi-retry) — long-horizon
 agent work can trip the loop many times in a session, so a retry cap would
 strand the agent mid-task. The loop exits only on a clean turn, a user abort
@@ -186,7 +188,10 @@ constants at the top of [`death-loop-guard.ts`](./death-loop-guard.ts):
 | Constant | Default | Meaning |
 |---|---|---|
 | `GUARDED_MODEL_IDS` | `zai-org/GLM-5.2-NVFP4`, `zai-org/GLM-5.2-FP8` | Which model IDs to guard. Add `'*'` to guard every Makora model. |
-| `BANG_THRESHOLD` | `40` | Consecutive `!` characters that trip the guard. 40 is far above anything normal prose/code produces. |
+| `REPEAT_THRESHOLD` | `40` | Consecutive identical characters that trip the guard. Applies to any non-whitespace character (whitespace can legitimately repeat). 40 is far above anything normal prose/code produces. (`BANG_THRESHOLD` is kept as a deprecated alias.) |
+| `IGNORED_REPEAT_CHARS` | `space, tab, LF, CR, FF, VT` | Characters whose repetition never trips the guard. |
+| `TOKEN_REPEAT_THRESHOLD` | `40` | Consecutive identical whitespace-delimited tokens that trip the guard. Catches spaced loops like `0 0 0` that the character run can't see. |
+| `TOKEN_REPEAT_BUFFER_CHARS` | `1024` | Tail length kept for token-run detection. Must hold ≥ `TOKEN_REPEAT_THRESHOLD` copies of the repeated unit. |
 | `BACKOFF_BASE_MS` | `2000` | Initial recovery backoff delay. |
 | `BACKOFF_MAX_MS` | `60000` | Maximum backoff delay (cap). |
 | `BACKOFF_MULTIPLIER` | `2` | Backoff growth factor per retry. |

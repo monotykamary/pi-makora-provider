@@ -2,8 +2,10 @@
  * Death-loop guard for Makora reasoning models.
  *
  * Some Makora models (notably GLM 5.2 NVFP4 / FP8) occasionally fall into a
- * degenerate repetition loop, emitting an unbroken run of '!' characters
- * (e.g. "!!!!...") that consumes the whole response. This guard watches the
+ * degenerate repetition loop, emitting an unbroken run of a single character
+ * (observed: '!' -> "!!!!..." and '0' -> "0000...") or a repeated token
+ * (observed: '0' -> "0 0 0 ...") that consumes the whole response. This guard
+ * watches the
  * streamed assistant output (both the visible answer and the reasoning
  * trace); when that run is detected it aborts the runaway generation, drops
  * the partial (toxic) assistant message from the transcript, and resumes the
@@ -55,9 +57,45 @@ export const GUARDED_MODEL_IDS = new Set<string>([
   "zai-org/GLM-5.2-FP8",
 ]);
 
-/** Trip after this many consecutive '!' characters in the streamed answer.
- *  40 is far above anything normal prose or code produces. */
-export const BANG_THRESHOLD = 40;
+/** Trip after this many consecutive identical characters in the streamed
+ *  answer. 40 is far above anything normal prose or code produces for any
+ *  single non-whitespace character. */
+export const REPEAT_THRESHOLD = 40;
+
+/** @deprecated alias kept for downstream forks; prefer REPEAT_THRESHOLD.
+ *  The guard now catches runs of any non-whitespace character, not just '!'. */
+export const BANG_THRESHOLD = REPEAT_THRESHOLD;
+
+/** Characters whose repetition we never trip on. Whitespace can legitimately
+ *  repeat (code indentation, blank lines, markdown padding), so a long
+ *  whitespace run is not treated as a degenerate loop. Every other character
+ *  is a candidate. Exported for tests/introspection. */
+export const IGNORED_REPEAT_CHARS = new Set<string>([
+  " ",
+  "\t",
+  "\n",
+  "\r",
+  "\f",
+  "\v",
+]);
+
+/** A trailing run of one repeated character in streamed text. `char` is ""
+ *  when `len` === 0. */
+export interface TrailingRun {
+  char: string;
+  len: number;
+}
+
+/** Trip after this many consecutive identical whitespace-delimited tokens.
+ *  Catches spaced repetition ("0 0 0 ...", "!!!! !!!! ...") that the
+ *  single-character run can't see (the separator resets it). 40 mirrors
+ *  REPEAT_THRESHOLD. */
+export const TOKEN_REPEAT_THRESHOLD = 40;
+
+/** Bounded tail kept for token-run detection. Must hold >=
+ *  TOKEN_REPEAT_THRESHOLD copies of the repeated unit; 1024 comfortably fits 40
+ *  copies of tokens up to ~25 chars. */
+export const TOKEN_REPEAT_BUFFER_CHARS = 1024;
 
 /** Exponential backoff for recovery retries. Mirrors pi-retry's defaults:
  *  2s base, 60s cap, 2× multiplier. Tunable via these constants. */
@@ -97,8 +135,22 @@ let _agent: GuardedAgent | null = null;
  *  only the loop driver re-issues prompt([]). */
 let _recovering = false;
 
-/** Trailing '!' run length in the current text block. */
-let _trailingBangs = 0;
+/** Trailing run of one repeated character in the current text block. */
+let _trailingRunChar = "";
+let _trailingRunLen = 0;
+
+/** Bounded trailing buffer for token-level repetition detection (e.g.
+ *  "0 0 0 ...", "!!!! !!!! ..."). Single-char runs don't see spaced
+ *  repetition, so we also tokenize the recent tail and count consecutive
+ *  identical tokens. Capped to keep memory/cost bounded on long streams. */
+let _tokenRepeatBuffer = "";
+
+/** Reset all per-turn/per-block detection state. */
+function resetDetection(): void {
+  _trailingRunChar = "";
+  _trailingRunLen = 0;
+  _tokenRepeatBuffer = "";
+}
 
 /** Latch: already tripped for the current assistant message. */
 let _tripped = false;
@@ -131,17 +183,35 @@ export function isGuardedModel(
   return model.id != null && GUARDED_MODEL_IDS.has(model.id);
 }
 
-/** Update the trailing-'!' run length given a new text delta. O(len(delta)).
- *  Trailing run depends only on the delta's suffix: if the delta contains any
- *  non-'!' char, the prior run is cut off at that char; if the delta is all
- *  '!', it extends the prior run. */
-export function nextTrailingBangs(prev: number, delta: string): number {
+/** Update the trailing single-character run given a new text delta.
+ *  O(len(delta)). Tracks runs of any one character (so the guard catches a
+ *  degenerate loop regardless of which character the model fixates on),
+ *  including whitespace -- the trip decision in isDegenerateRun filters those.
+ *
+ *  Trailing run depends only on the delta's suffix: if the delta ends with a
+ *  different character than the prior run, the prior run is cut off and the
+ *  new run is the delta's trailing run of its last character; if the delta is
+ *  entirely the prior run's character, it extends the prior run. */
+export function nextTrailingRun(prev: TrailingRun, delta: string): TrailingRun {
   const len = delta.length;
   if (len === 0) return prev;
+  const lastCode = delta.charCodeAt(len - 1);
   let i = len - 1;
-  while (i >= 0 && delta.charCodeAt(i) === 0x21) i--; // '!' === 0x21
+  while (i >= 0 && delta.charCodeAt(i) === lastCode) i--;
+  const lastChar = delta[len - 1];
   const trailingInDelta = len - 1 - i;
-  return i >= 0 ? trailingInDelta : prev + len;
+  // Delta is entirely one char and it matches the prior run: extend it.
+  if (i < 0 && prev.len > 0 && prev.char === lastChar) {
+    return { char: prev.char, len: prev.len + len };
+  }
+  return { char: lastChar, len: trailingInDelta };
+}
+
+/** @deprecated '!'-only alias kept for downstream forks. Returns the trailing
+ *  '!' run length (0 once the run switches to any other character). */
+export function nextTrailingBangs(prev: number, delta: string): number {
+  const run = nextTrailingRun({ char: "!", len: prev }, delta);
+  return run.char === "!" ? run.len : 0;
 }
 
 export function extractText(content: unknown): string {
@@ -163,12 +233,93 @@ export function extractText(content: unknown): string {
   return "";
 }
 
-/** Trailing '!' run length of a finalized message's text content. */
-export function messageTrailingBangs(msg: GuardedMessage): number {
+/** Trailing single-character run of a finalized message's text content. */
+export function messageTrailingRun(msg: GuardedMessage): TrailingRun {
   const text = extractText(msg.content);
+  if (text.length === 0) return { char: "", len: 0 };
+  const lastCode = text.charCodeAt(text.length - 1);
   let i = text.length - 1;
-  while (i >= 0 && text.charCodeAt(i) === 0x21) i--;
-  return text.length - 1 - i;
+  while (i >= 0 && text.charCodeAt(i) === lastCode) i--;
+  return { char: text[text.length - 1], len: text.length - 1 - i };
+}
+
+/** @deprecated '!'-only alias kept for downstream forks. */
+export function messageTrailingBangs(msg: GuardedMessage): number {
+  const run = messageTrailingRun(msg);
+  return run.char === "!" ? run.len : 0;
+}
+
+/** True when a trailing run is long enough to be a degenerate loop. Whitespace
+ *  runs never count (see IGNORED_REPEAT_CHARS). Exported so the trip decision
+ *  is unit-testable independently of the streaming handler. */
+export function isDegenerateRun(
+  run: TrailingRun,
+  threshold: number = REPEAT_THRESHOLD,
+): boolean {
+  return (
+    run.len >= threshold &&
+    run.char !== "" &&
+    !IGNORED_REPEAT_CHARS.has(run.char)
+  );
+}
+
+/** A trailing run of one repeated whitespace-delimited token. `token` is ""
+ *  when `count` === 0. */
+export interface TokenRun {
+  token: string;
+  count: number;
+}
+
+/** Is `code` a whitespace code unit we split tokens on? Mirrors
+ *  IGNORED_REPEAT_CHARS (space, tab, LF, CR, FF, VT). */
+function isWhitespaceChar(code: number): boolean {
+  switch (code) {
+    case 0x20: case 0x09: case 0x0a: case 0x0d: case 0x0c: case 0x0b:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Trailing run of one repeated whitespace-delimited token in `text`. Walks
+ *  backward from the end: skips trailing whitespace, captures the last token,
+ *  then counts consecutive preceding copies separated only by whitespace.
+ *  O(run length * token length). Used on a bounded tail buffer, so cost stays
+ *  bounded regardless of total stream length. */
+export function trailingTokenRun(text: string): TokenRun {
+  const len = text.length;
+  let end = len;
+  while (end > 0 && isWhitespaceChar(text.charCodeAt(end - 1))) end--;
+  if (end === 0) return { token: "", count: 0 };
+  let start = end;
+  while (start > 0 && !isWhitespaceChar(text.charCodeAt(start - 1))) start--;
+  const token = text.slice(start, end);
+  let count = 1;
+  let i = start;
+  while (i > 0) {
+    let j = i;
+    while (j > 0 && isWhitespaceChar(text.charCodeAt(j - 1))) j--;
+    if (j === 0) break;
+    let prevEnd = j;
+    let prevStart = prevEnd;
+    while (prevStart > 0 && !isWhitespaceChar(text.charCodeAt(prevStart - 1))) {
+      prevStart--;
+    }
+    if (text.slice(prevStart, prevEnd) !== token) break;
+    count++;
+    i = prevStart;
+  }
+  return { token, count };
+}
+
+/** True when a trailing token run is long enough to be a degenerate loop.
+ *  Tokens are non-whitespace by construction, so no whitespace exclusion is
+ *  needed (unlike isDegenerateRun). Exported for unit testing. */
+export function isDegenerateTokenRun(
+  run: TokenRun,
+  threshold: number = TOKEN_REPEAT_THRESHOLD,
+): boolean {
+  return run.count >= threshold && run.token !== "";
 }
 
 /** Exponential backoff delay, capped at maxDelayMs. Mirrors pi-retry. */
@@ -219,7 +370,8 @@ function trimAbortedDeathLoop(agent: GuardedAgent): void {
     last &&
     last.role === "assistant" &&
     (last.stopReason === "aborted" ||
-      messageTrailingBangs(last) >= BANG_THRESHOLD)
+      isDegenerateRun(messageTrailingRun(last)) ||
+      isDegenerateTokenRun(trailingTokenRun(extractText(last.content))))
   ) {
     agent.state.messages = msgs.slice(0, -1);
   }
@@ -252,8 +404,8 @@ async function triggerRecovery(): Promise<void> {
       const delay = calculateDelay(attempt);
       if (_notifyFn) {
         _notifyFn(
-          `Makora death-loop guard: resuming after runaway '!' output ` +
-            `(retry ${attempt}, backoff ${formatDuration(delay)})...`,
+          `Makora death-loop guard: resuming after runaway repeated-character ` +
+            `output (retry ${attempt}, backoff ${formatDuration(delay)})...`,
           "warning",
         );
       }
@@ -311,7 +463,7 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     // exits within 100ms (during backoff) or right after prompt([]) returns.
     _sessionGeneration++;
     _recovering = false;
-    _trailingBangs = 0;
+    resetDetection();
     _tripped = false;
     _weAborted = false;
     _userAborted = false;
@@ -321,7 +473,7 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
   // not for the recovery's direct agent.prompt([]), so these resets bound
   // detection to the current user prompt without clearing mid-recovery.
   pi.on("before_agent_start", () => {
-    _trailingBangs = 0;
+    resetDetection();
     _tripped = false;
     _weAborted = false;
     // A new user prompt is fresh activity — clear a stale user-abort flag.
@@ -330,7 +482,7 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
 
   pi.on("message_start", (event) => {
     if (event.message?.role === "assistant") {
-      _trailingBangs = 0;
+      resetDetection();
       _tripped = false;
       _weAborted = false;
     }
@@ -344,8 +496,8 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     if (_recovering || _tripped) return;
     const ame = event.assistantMessageEvent;
     if (ame.type === "text_start" || ame.type === "thinking_start") {
-      // New content block (answer or reasoning) — trailing run starts fresh.
-      _trailingBangs = 0;
+      // New content block (answer or reasoning) — detection starts fresh.
+      resetDetection();
       return;
     }
     // Watch both the visible answer and the reasoning trace: GLM 5.2 is a
@@ -353,8 +505,22 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     if (ame.type !== "text_delta" && ame.type !== "thinking_delta") return;
     if (!isGuardedModel(ctx.model)) return;
 
-    _trailingBangs = nextTrailingBangs(_trailingBangs, ame.delta);
-    if (_trailingBangs < BANG_THRESHOLD) return;
+    const run = nextTrailingRun(
+      { char: _trailingRunChar, len: _trailingRunLen },
+      ame.delta,
+    );
+    _trailingRunChar = run.char;
+    _trailingRunLen = run.len;
+
+    // Token-level repetition: a spaced loop like "0 0 0 ..." or "!!!! !!!!"
+    // never builds a single-char run (the separator resets it), so track the
+    // recent tail as whitespace-delimited tokens and count consecutive copies.
+    _tokenRepeatBuffer = (_tokenRepeatBuffer + ame.delta).slice(
+      -TOKEN_REPEAT_BUFFER_CHARS,
+    );
+    const tokenRun = trailingTokenRun(_tokenRepeatBuffer);
+
+    if (!isDegenerateRun(run) && !isDegenerateTokenRun(tokenRun)) return;
 
     // Trip: abort the runaway stream and kick off the recovery loop (once,
     // mutex-gated). The loop driver handles re-detection on resumed turns.
@@ -363,8 +529,8 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     const agent = _agent;
     if (!agent) {
       ctx.ui.notify(
-        "Makora death-loop guard: runaway '!' output detected but the Agent " +
-          "instance was not captured; cannot recover automatically.",
+        "Makora death-loop guard: runaway repeated-character output detected " +
+          "but the Agent instance was not captured; cannot recover automatically.",
         "warning",
       );
       return;

@@ -22,9 +22,11 @@
  *
  * A death-loop guard (see ./death-loop-guard.ts) is registered alongside the
  * provider. It watches the assistant text stream on the GLM 5.2 family and,
- * if the model falls into an unbroken '!' repetition loop, aborts the runaway
- * generation and resumes the agentic loop invisibly via agent.prompt([]) (the
- * pi-invisible-continue pattern) — no new user message is injected.
+ * if the model falls into a degenerate repetition loop — an unbroken run of a
+ * single character or token, spaced or not (observed: `!!!!`, `0000`, `0 0 0`)
+ * — it aborts the runaway generation and resumes the agentic loop invisibly
+ * via agent.prompt([]) (the pi-invisible-continue pattern); no new user
+ * message is injected.
  *
  * Developer role is NOT supported by any of the chat templates on Makora's
  * vLLM deployment (prompts with role: "developer" are silently dropped).
@@ -213,7 +215,8 @@ export default function (pi: ExtensionAPI) {
     models,
   });
 
-  // Abort runaway '!' repetition loops on the GLM 5.2 family and resume the
+  // Abort runaway repetition loops — a single character or token, spaced or
+  // not (e.g. '!!!!', '0000', '0 0 0') — on the GLM 5.2 family and resume the
   // agentic loop invisibly (no new user message). See ./death-loop-guard.ts.
   registerDeathLoopGuard(pi);
 }

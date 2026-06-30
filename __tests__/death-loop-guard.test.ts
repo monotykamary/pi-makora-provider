@@ -11,18 +11,27 @@
 import { describe, expect, it } from "vitest";
 import {
   BANG_THRESHOLD,
+  REPEAT_THRESHOLD,
+  TOKEN_REPEAT_THRESHOLD,
+  TOKEN_REPEAT_BUFFER_CHARS,
   BACKOFF_BASE_MS,
   BACKOFF_MAX_MS,
   BACKOFF_MULTIPLIER,
   DEFAULT_BACKOFF_CONFIG,
   GUARDED_MODEL_IDS,
+  IGNORED_REPEAT_CHARS,
   calculateDelay,
   extractText,
   formatDuration,
+  isDegenerateRun,
+  isDegenerateTokenRun,
   isGuardedModel,
   messageTrailingBangs,
+  messageTrailingRun,
   nextTrailingBangs,
+  nextTrailingRun,
   registerDeathLoopGuard,
+  trailingTokenRun,
 } from "../death-loop-guard.js";
 
 describe("death-loop-guard config", () => {
@@ -31,8 +40,12 @@ describe("death-loop-guard config", () => {
     expect(GUARDED_MODEL_IDS.has("zai-org/GLM-5.2-FP8")).toBe(true);
   });
 
-  it("exports a sensible bang threshold", () => {
-    expect(BANG_THRESHOLD).toBeGreaterThanOrEqual(20);
+  it("exports a sensible repeat threshold", () => {
+    expect(REPEAT_THRESHOLD).toBeGreaterThanOrEqual(20);
+  });
+
+  it("keeps BANG_THRESHOLD as a deprecated alias of REPEAT_THRESHOLD", () => {
+    expect(BANG_THRESHOLD).toBe(REPEAT_THRESHOLD);
   });
 
   it("exports the guard registration function", () => {
@@ -47,9 +60,69 @@ describe("death-loop-guard config", () => {
     expect(BACKOFF_MAX_MS).toBeGreaterThanOrEqual(BACKOFF_BASE_MS);
     expect(BACKOFF_MULTIPLIER).toBeGreaterThan(1);
   });
+
+  it("ignores whitespace characters for repetition trips", () => {
+    expect(IGNORED_REPEAT_CHARS.has(" ")).toBe(true);
+    expect(IGNORED_REPEAT_CHARS.has("\t")).toBe(true);
+    expect(IGNORED_REPEAT_CHARS.has("\n")).toBe(true);
+    expect(IGNORED_REPEAT_CHARS.has("\r")).toBe(true);
+    expect(IGNORED_REPEAT_CHARS.has("!")).toBe(false);
+    expect(IGNORED_REPEAT_CHARS.has("0")).toBe(false);
+  });
+
+  it("exports token-repeat thresholds for spaced loops", () => {
+    expect(TOKEN_REPEAT_THRESHOLD).toBeGreaterThanOrEqual(20);
+    // Buffer must hold many copies of the repeated unit.
+    expect(TOKEN_REPEAT_BUFFER_CHARS).toBeGreaterThanOrEqual(
+      TOKEN_REPEAT_THRESHOLD * 2,
+    );
+  });
 });
 
-describe("nextTrailingBangs", () => {
+describe("nextTrailingRun", () => {
+  it("returns the prior run unchanged for an empty delta", () => {
+    expect(nextTrailingRun({ char: "", len: 0 }, "")).toEqual({ char: "", len: 0 });
+    expect(nextTrailingRun({ char: "!", len: 7 }, "")).toEqual({ char: "!", len: 7 });
+  });
+
+  it("counts the trailing run of any single character", () => {
+    expect(nextTrailingRun({ char: "", len: 0 }, "hello")).toEqual({ char: "o", len: 1 });
+    expect(nextTrailingRun({ char: "", len: 0 }, "hi!")).toEqual({ char: "!", len: 1 });
+    expect(nextTrailingRun({ char: "", len: 0 }, "a!!")).toEqual({ char: "!", len: 2 });
+    // The colleague's case: a run of '0'.
+    expect(nextTrailingRun({ char: "", len: 0 }, "code 0000")).toEqual({ char: "0", len: 4 });
+    expect(nextTrailingRun({ char: "", len: 0 }, "0000")).toEqual({ char: "0", len: 4 });
+  });
+
+  it("extends the prior run when the delta is all the same character", () => {
+    expect(nextTrailingRun({ char: "!", len: 0 }, "!!!")).toEqual({ char: "!", len: 3 });
+    expect(nextTrailingRun({ char: "!", len: 3 }, "!!")).toEqual({ char: "!", len: 5 });
+    expect(nextTrailingRun({ char: "!", len: 5 }, "!".repeat(40))).toEqual({ char: "!", len: 45 });
+    expect(nextTrailingRun({ char: "0", len: 3 }, "00")).toEqual({ char: "0", len: 5 });
+  });
+
+  it("cuts off the prior run and switches character when a different one appears", () => {
+    expect(nextTrailingRun({ char: "!", len: 5 }, "a!")).toEqual({ char: "!", len: 1 });
+    expect(nextTrailingRun({ char: "!", len: 5 }, "ab")).toEqual({ char: "b", len: 1 });
+    expect(nextTrailingRun({ char: "!", len: 5 }, "!a")).toEqual({ char: "a", len: 1 });
+    expect(nextTrailingRun({ char: "!", len: 5 }, "x!!!")).toEqual({ char: "!", len: 3 });
+    // '!' loop hands off to a '0' loop.
+    expect(nextTrailingRun({ char: "!", len: 12 }, "0000")).toEqual({ char: "0", len: 4 });
+  });
+
+  it("tracks whitespace runs (filtering happens in isDegenerateRun, not here)", () => {
+    expect(nextTrailingRun({ char: "", len: 0 }, "   ")).toEqual({ char: " ", len: 3 });
+    expect(nextTrailingRun({ char: " ", len: 3 }, "  ")).toEqual({ char: " ", len: 5 });
+    expect(nextTrailingRun({ char: "", len: 0 }, "\n\n\n")).toEqual({ char: "\n", len: 3 });
+  });
+
+  it("handles multi-byte (non-ASCII) characters without false run extension", () => {
+    expect(nextTrailingRun({ char: "", len: 0 }, "é!")).toEqual({ char: "!", len: 1 });
+    expect(nextTrailingRun({ char: "!", len: 4 }, "café")).toEqual({ char: "é", len: 1 });
+  });
+});
+
+describe("nextTrailingBangs (deprecated '!'-only alias)", () => {
   it("returns the prior run for an empty delta", () => {
     expect(nextTrailingBangs(0, "")).toBe(0);
     expect(nextTrailingBangs(7, "")).toBe(7);
@@ -77,6 +150,132 @@ describe("nextTrailingBangs", () => {
   it("handles multi-byte (non-'!') characters without false positives", () => {
     expect(nextTrailingBangs(0, "é!")).toBe(1);
     expect(nextTrailingBangs(4, "café")).toBe(0);
+  });
+
+  it("returns 0 once the run switches away from '!'", () => {
+    expect(nextTrailingBangs(12, "0000")).toBe(0);
+  });
+});
+
+describe("isDegenerateRun", () => {
+  it("is false below the threshold", () => {
+    expect(isDegenerateRun({ char: "!", len: 39 })).toBe(false);
+    expect(isDegenerateRun({ char: "0", len: 39 })).toBe(false);
+  });
+
+  it("trips at/above the threshold for any non-whitespace character", () => {
+    expect(isDegenerateRun({ char: "!", len: 40 })).toBe(true);
+    expect(isDegenerateRun({ char: "!", len: 45 })).toBe(true);
+    expect(isDegenerateRun({ char: "0", len: 40 })).toBe(true);
+    expect(isDegenerateRun({ char: "a", len: 40 })).toBe(true);
+    expect(isDegenerateRun({ char: "-", len: 40 })).toBe(true);
+  });
+
+  it("never trips on whitespace runs, however long", () => {
+    expect(isDegenerateRun({ char: " ", len: 40 })).toBe(false);
+    expect(isDegenerateRun({ char: " ", len: 10_000 })).toBe(false);
+    expect(isDegenerateRun({ char: "\t", len: 40 })).toBe(false);
+    expect(isDegenerateRun({ char: "\n", len: 40 })).toBe(false);
+    expect(isDegenerateRun({ char: "\r", len: 40 })).toBe(false);
+  });
+
+  it("is false for an empty run", () => {
+    expect(isDegenerateRun({ char: "", len: 0 })).toBe(false);
+    expect(isDegenerateRun({ char: "", len: 100 })).toBe(false);
+  });
+
+  it("honors a custom threshold", () => {
+    expect(isDegenerateRun({ char: "0", len: 5 }, 10)).toBe(false);
+    expect(isDegenerateRun({ char: "0", len: 10 }, 10)).toBe(true);
+  });
+});
+
+describe("trailingTokenRun", () => {
+  it("returns an empty run for empty or whitespace-only text", () => {
+    expect(trailingTokenRun("")).toEqual({ token: "", count: 0 });
+    expect(trailingTokenRun("   ")).toEqual({ token: "", count: 0 });
+    expect(trailingTokenRun("\n\t")).toEqual({ token: "", count: 0 });
+  });
+
+  it("counts a trailing run of a single token", () => {
+    expect(trailingTokenRun("hello")).toEqual({ token: "hello", count: 1 });
+    expect(trailingTokenRun("foo bar")).toEqual({ token: "bar", count: 1 });
+  });
+
+  it("counts consecutive identical tokens separated by whitespace", () => {
+    expect(trailingTokenRun("0 0 0")).toEqual({ token: "0", count: 3 });
+    expect(trailingTokenRun("a 0 0 0")).toEqual({ token: "0", count: 3 });
+    expect(trailingTokenRun("! ! ! !")).toEqual({ token: "!", count: 4 });
+    expect(trailingTokenRun("!!!! !!!! !!!!")).toEqual({ token: "!!!!", count: 3 });
+  });
+
+  it("handles leading whitespace and a different leading token", () => {
+    expect(trailingTokenRun("   0 0 0")).toEqual({ token: "0", count: 3 });
+    expect(trailingTokenRun("x 0 0 0")).toEqual({ token: "0", count: 3 });
+  });
+
+  it("handles trailing whitespace without inflating the count", () => {
+    expect(trailingTokenRun("0 0 0 ")).toEqual({ token: "0", count: 3 });
+    expect(trailingTokenRun("0 0 0\n")).toEqual({ token: "0", count: 3 });
+  });
+
+  it("treats tabs and newlines as token separators", () => {
+    expect(trailingTokenRun("0\t0\t0")).toEqual({ token: "0", count: 3 });
+    expect(trailingTokenRun("0\n0\n0")).toEqual({ token: "0", count: 3 });
+  });
+
+  it("stops counting at the first different token", () => {
+    expect(trailingTokenRun("0 0 0 1")).toEqual({ token: "1", count: 1 });
+    expect(trailingTokenRun("00 0 0")).toEqual({ token: "0", count: 2 });
+  });
+
+  it("detects a 40-token spaced zero loop (the colleague case)", () => {
+    expect(trailingTokenRun("0 ".repeat(40))).toEqual({ token: "0", count: 40 });
+    expect(trailingTokenRun("x ".repeat(39) + "0 ".repeat(40))).toEqual({
+      token: "0",
+      count: 40,
+    });
+  });
+});
+
+describe("isDegenerateTokenRun", () => {
+  it("is false below the threshold", () => {
+    expect(isDegenerateTokenRun({ token: "0", count: 39 })).toBe(false);
+  });
+
+  it("trips at/above the threshold for any token", () => {
+    expect(isDegenerateTokenRun({ token: "0", count: 40 })).toBe(true);
+    expect(isDegenerateTokenRun({ token: "!", count: 40 })).toBe(true);
+    expect(isDegenerateTokenRun({ token: "!!!!", count: 50 })).toBe(true);
+  });
+
+  it("is false for an empty token", () => {
+    expect(isDegenerateTokenRun({ token: "", count: 0 })).toBe(false);
+    expect(isDegenerateTokenRun({ token: "", count: 100 })).toBe(false);
+  });
+
+  it("honors a custom threshold", () => {
+    expect(isDegenerateTokenRun({ token: "0", count: 5 }, 10)).toBe(false);
+    expect(isDegenerateTokenRun({ token: "0", count: 10 }, 10)).toBe(true);
+  });
+});
+
+describe("character vs token detection coverage", () => {
+  it("a spaced zero loop is NOT a degenerate character run but IS a degenerate token run", () => {
+    const spaced = "0 ".repeat(40);
+    // Character run sees only the last '0' (the space resets it).
+    let charRun = { char: "", len: 0 };
+    for (const ch of spaced) charRun = nextTrailingRun(charRun, ch);
+    expect(isDegenerateRun(charRun)).toBe(false);
+    // Token run sees 40 consecutive '0' tokens.
+    expect(isDegenerateTokenRun(trailingTokenRun(spaced))).toBe(true);
+  });
+
+  it("an unspaced zero loop IS a degenerate character run", () => {
+    const unspaced = "0".repeat(40);
+    let charRun = { char: "", len: 0 };
+    for (const ch of unspaced) charRun = nextTrailingRun(charRun, ch);
+    expect(isDegenerateRun(charRun)).toBe(true);
   });
 });
 
@@ -112,7 +311,40 @@ describe("extractText", () => {
   });
 });
 
-describe("messageTrailingBangs", () => {
+describe("messageTrailingRun", () => {
+  it("counts a trailing run of any character in string content", () => {
+    expect(messageTrailingRun({ role: "assistant", content: "hello!!!" })).toEqual({ char: "!", len: 3 });
+    expect(messageTrailingRun({ role: "assistant", content: "plain" })).toEqual({ char: "n", len: 1 });
+    expect(messageTrailingRun({ role: "assistant", content: "value 0000" })).toEqual({ char: "0", len: 4 });
+  });
+
+  it("counts a trailing run across concatenated text blocks", () => {
+    expect(
+      messageTrailingRun({
+        role: "assistant",
+        content: [{ type: "text", text: "!!!" }, { type: "text", text: "!!" }],
+      }),
+    ).toEqual({ char: "!", len: 5 });
+  });
+
+  it("switches character when the last text block ends differently", () => {
+    expect(
+      messageTrailingRun({
+        role: "assistant",
+        content: [{ type: "text", text: "!!!" }, { type: "text", text: "no" }],
+      }),
+    ).toEqual({ char: "o", len: 1 });
+  });
+
+  it("returns an empty run for empty or non-text content", () => {
+    expect(messageTrailingRun({ role: "assistant", content: "" })).toEqual({ char: "", len: 0 });
+    expect(
+      messageTrailingRun({ role: "assistant", content: [{ type: "thinking", text: "!!!" }] }),
+    ).toEqual({ char: "", len: 0 });
+  });
+});
+
+describe("messageTrailingBangs (deprecated '!'-only alias)", () => {
   it("counts a trailing run in string content", () => {
     expect(messageTrailingBangs({ role: "assistant", content: "hello!!!" })).toBe(3);
     expect(messageTrailingBangs({ role: "assistant", content: "plain" })).toBe(0);
