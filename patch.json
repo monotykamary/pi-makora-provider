@@ -32,31 +32,31 @@
   },
   "unsloth/Qwen3.6-27B-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field",
+    "notes": "off via top-level `reasoning_effort: \"none\"`; `preserve_thinking` (toggled with thinking switch) injected via onPayload for multi-turn continuity; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": "low",
-      "xhigh": "high"
+      "xhigh": "high",
+      "off": "none"
     },
     "compat": {
-      "thinkingFormat": "qwen-chat-template",
       "supportsReasoningEffort": true,
       "chatTemplateKwargs": {
-        "preserve_thinking": true
+        "preserve_thinking": { "$var": "thinking.enabled" }
       }
     }
   },
   "unsloth/Qwen3.6-35B-A3B-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field",
+    "notes": "off via top-level `reasoning_effort: \"none\"`; `preserve_thinking` (toggled with thinking switch) injected via onPayload for multi-turn continuity; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": "low",
-      "xhigh": "high"
+      "xhigh": "high",
+      "off": "none"
     },
     "compat": {
-      "thinkingFormat": "qwen-chat-template",
       "supportsReasoningEffort": true,
       "chatTemplateKwargs": {
-        "preserve_thinking": true
+        "preserve_thinking": { "$var": "thinking.enabled" }
       }
     }
   },
@@ -66,47 +66,54 @@
       "text",
       "image"
     ],
-    "notes": "Reasoning on by default (thinking-only model); `preserve_thinking` via `chatTemplateKwargs` for multi-turn continuity; returns `reasoning` field",
+    "notes": "on/off via namespaced `chat_template_kwargs.thinking` (toggled with thinking switch); `preserve_thinking` (toggled) for multi-turn continuity; onPayload aliases each assistant message's `reasoning` → `reasoning_content` (Kimi's template reads `reasoning_content` but pi-ai sends `reasoning`); returns `reasoning` field. `reasoning_effort` is not emitted (Kimi's template reads namespaced `thinking`, not `reasoning_effort`)",
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high"
     },
     "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true,
+      "supportsReasoningEffort": false,
+      "assistantReasoningField": "reasoning_content",
       "chatTemplateKwargs": {
-        "preserve_thinking": true
+        "thinking": { "$var": "thinking.enabled" },
+        "preserve_thinking": { "$var": "thinking.enabled" }
       }
     }
   },
   "zai-org/GLM-5.2-FP8": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); thinking levels aligned with neuralwatt GLM 5.2; returns `reasoning` field",
+    "notes": "off via top-level `reasoning_effort: \"none\"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": null,
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max"
+      "xhigh": "max",
+      "off": "none"
     },
     "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "clear_thinking": { "$var": "thinking.enabled", "invert": true }
+      }
     }
   },
   "zai-org/GLM-5.2-NVFP4": {
     "reasoning": true,
-    "notes": "`enable_thinking` via `qwen-chat-template`; effort via `reasoning_effort` (only `high`/`max` distinct, per vLLM GLM-5.2 recipe); returns `reasoning` field",
+    "notes": "off via top-level `reasoning_effort: \"none\"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": null,
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max"
+      "xhigh": "max",
+      "off": "none"
     },
     "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": true
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "clear_thinking": { "$var": "thinking.enabled", "invert": true }
+      }
     }
   }
 }

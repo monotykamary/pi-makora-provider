@@ -47,6 +47,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { clampThinkingLevel } from "@earendil-works/pi-ai";
+import { streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };
@@ -91,6 +94,13 @@ interface JsonModel {
     requiresToolResultName?: boolean;
     requiresAssistantAfterToolResult?: boolean;
     cacheControlFormat?: "anthropic";
+    /** When set, onPayload copies each assistant message's `reasoning` field into
+     *  this field name before sending. Needed when a model's chat template reads
+     *  prior reasoning from a different field than the one pi-ai sends it in.
+     *  e.g. Kimi K2.7's template reads `reasoning_content`, but pi-ai sends
+     *  `reasoning` (the field the model returns) — without the copy, preserve_thinking
+     *  can't render the prior trace. */
+    assistantReasoningField?: string;
     /** Extra keys merged into vLLM `chat_template_kwargs` on every request.
      *  Used for preserved-thinking flags like `preserve_thinking` / `clear_thinking`
      *  that some chat templates require for multi-turn reasoning continuity. */
@@ -192,6 +202,177 @@ function buildModels(
   return Array.from(modelMap.values());
 }
 
+// Thinking-off + preserved-thinking via streamSimple
+//
+// Makora's reasoning models need BOTH a thinking on/off switch AND multi-turn
+// reasoning continuity (`preserve_thinking`). pi-ai's built-in `thinkingFormat`
+// branches are mutually exclusive: the `chat-template` branch emits
+// `chat_template_kwargs` (so it can carry `preserve_thinking`) but never a
+// top-level `reasoning_effort`; the OpenAI fallback emits `reasoning_effort`
+// (the lever GLM 5.2 and Qwen 3.6 actually respond to for off) but never
+// `chat_template_kwargs`. No single format emits both.
+//
+// Behavioral E2E (see test-thinking-triggers.ts / test-preserve-deterministic.ts):
+//   GLM 5.2   — off ONLY via top-level `reasoning_effort: "none"`;
+//               `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored.
+//               Multi-turn continuity uses `clear_thinking: false` (NOT preserve_thinking
+//               — that flag is inert for GLM); toggled with the thinking switch
+//               (false when on = preserve, true when off = clear).
+//   Qwen 3.6  — off via top-level `reasoning_effort: "none"` (or `enable_thinking`).
+//               Multi-turn continuity uses `preserve_thinking: true`; reads the
+//               `reasoning` field pi-ai sends. Toggled with the thinking switch.
+//   Kimi K2.7 — off via namespaced `chat_template_kwargs.thinking: false`.
+//               Multi-turn continuity uses `preserve_thinking: true`, BUT the
+//               template reads `reasoning_content` while pi-ai sends `reasoning`
+//               (Makora doesn't gateway-alias the fields) — so onPayload also
+//               copies each assistant message's `reasoning` → `reasoning_content`.
+//   preserve_thinking IS functional (deterministic E2E: Qwen 3.6 27B recalls
+//     1.00 with it on, 0.00 off) — it gates whether the prior reasoning trace
+//     is rendered into the next turn's prompt.
+//
+// So this provider registers a `streamSimple` wrapper that delegates to pi-ai's
+// `streamOpenAICompletions` (keeping all its streaming/tool-calling/caching) and
+// uses pi-ai's `onPayload` hook — which runs AFTER `buildParams` — to inject the
+// `chat_template_kwargs` that the chosen `thinkingFormat` branch can't reach.
+// `buildParams` still owns `reasoning_effort` (on → mapped effort; off → "none");
+// `onPayload` owns `chat_template_kwargs` (preserve_thinking + Kimi's `thinking`).
+// Per-model config lives in `compat.chatTemplateKwargs` (patch.json), using the
+// same `{ "$var": "thinking.enabled" }` schema pi-ai's chat-template format uses.
+
+/** Resolve one `chatTemplateKwargs` value (scalar or `{ $var }`) against the
+ *  current thinking state. Mirrors pi-ai's `resolveChatTemplateKwargValue` so
+ *  onPayload-injected values match what the built-in chat-template format would
+ *  produce — but injected after buildParams so they coexist with reasoning_effort. */
+export function resolveChatTemplateKwarg(
+  value: unknown,
+  model: JsonModel,
+  thinkingOn: boolean,
+  reasoningEffort: string | undefined,
+): unknown {
+  // Scalars pass through unchanged (e.g. static `preserve_thinking: true`).
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  const spec = value as { $var?: string; omitWhenOff?: boolean; invert?: boolean };
+  if (spec.omitWhenOff && !thinkingOn) {
+    return undefined;
+  }
+  if (spec.$var === "thinking.enabled") {
+    return spec.invert ? !thinkingOn : thinkingOn;
+  }
+  if (spec.$var === "thinking.effort") {
+    const mapped = thinkingOn
+      ? model.thinkingLevelMap?.[reasoningEffort as string]
+      : model.thinkingLevelMap?.off;
+    if (mapped === undefined) return reasoningEffort;
+    return typeof mapped === "string" ? mapped : undefined;
+  }
+  return undefined;
+}
+
+/** Custom streamSimple: delegate to pi-ai's OpenAI completions streamer and
+ *  inject per-model `chat_template_kwargs` (preserve_thinking / clear_thinking +
+ *  Kimi's thinking toggle) via the onPayload hook, and alias each assistant
+ *  message's reasoning field when a template reads a different field name.
+ *  Models with neither chatTemplateKwargs nor assistantReasoningField (DeepSeek,
+ *  Llama, Gemma) pass through unchanged — onPayload is not registered. */
+export function streamMakora(
+  model: any,
+  context: any,
+  options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  const apiKey = options?.apiKey || "";
+  if (!apiKey) {
+    throw new Error(
+      `No API key for Makora. Add it to ~/.pi/agent/auth.json under "makora", ` +
+        `set the MAKORA_OPTIMIZE_TOKEN env var, or use --api-key.`,
+    );
+  }
+
+  // pi-ai's streamer reads `model.api` to pick the OpenAI completions client. Our
+  // provider registers under `api: "makora"` (so pi routes to this streamSimple);
+  // override to `openai-completions` here so streamOpenAICompletions uses the
+  // standard client. Per-model baseUrl overrides (per-slug endpoints) are kept.
+  const makoraModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
+
+  // pi hands streamSimple providers the raw thinking selection as
+  // `options.reasoning` (a ThinkingLevel). The raw streamOpenAICompletions only
+  // reads `options.reasoningEffort`, so replicate the clamp+convert pi-ai's own
+  // streamSimple wrapper does — otherwise reasoning_effort never reaches the
+  // body and thinking levels silently do nothing. "off" → undefined (off).
+  const clampedReasoning = options?.reasoning
+    ? clampThinkingLevel(makoraModel, options.reasoning)
+    : undefined;
+  const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+  const thinkingOn = reasoningEffort !== undefined;
+  const { reasoning: _reasoning, ...streamOptions } = options ?? {};
+
+  // Inject chat_template_kwargs after buildParams via onPayload. Any caller-
+  // supplied onPayload is chained first so it can inspect/replace the payload;
+  // our injection then merges into whatever chat_template_kwargs already exist.
+  // We also register onPayload when the model needs its prior-reasoning field
+  // aliased (assistantReasoningField) — e.g. Kimi's template reads
+  // `reasoning_content` but pi-ai sends `reasoning`; the copy makes the
+  // preserved trace visible to the template so preserve_thinking can render it.
+  const userOnPayload = (streamOptions as any).onPayload;
+  const extraKwargs = (makoraModel as JsonModel).compat?.chatTemplateKwargs;
+  const hasExtraKwargs =
+    !!extraKwargs && typeof extraKwargs === "object" && Object.keys(extraKwargs).length > 0;
+  const assistantReasoningField = (makoraModel as JsonModel).compat?.assistantReasoningField;
+  const needsFieldCopy = !!assistantReasoningField;
+  const onPayload =
+    hasExtraKwargs || needsFieldCopy || userOnPayload
+      ? async (params: any, mdl: any) => {
+          let p = params;
+          if (userOnPayload) {
+            const next = await userOnPayload(p, mdl);
+            if (next !== undefined) p = next;
+          }
+          if (needsFieldCopy && thinkingOn) {
+            // Only alias the prior reasoning field when thinking is ON — when the
+            // user turns thinking off we must NOT carry prior reasoning forward
+            // (preserve_thinking is inert for Kimi's field rendering; the field's
+            // presence is what gates continuity). Kimi's template ignores the
+            // `reasoning` field, so skipping the copy leaves nothing to render.
+            const field = assistantReasoningField!;
+            const msgs = Array.isArray(p?.messages) ? p.messages : [];
+            p = {
+              ...p,
+              messages: msgs.map((m: any) =>
+                m && m.role === "assistant" &&
+                typeof m.reasoning === "string" && m.reasoning.length > 0 &&
+                m[field] === undefined
+                  ? { ...m, [field]: m.reasoning }
+                  : m
+              ),
+            };
+          }
+          if (hasExtraKwargs) {
+            const resolved: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(extraKwargs!)) {
+              const r = resolveChatTemplateKwarg(v, makoraModel, thinkingOn, reasoningEffort as string | undefined);
+              if (r !== undefined) resolved[k] = r;
+            }
+            p = {
+              ...p,
+              chat_template_kwargs: {
+                ...(p?.chat_template_kwargs ?? {}),
+                ...resolved,
+              },
+            };
+          }
+          return p;
+        }
+      : undefined;
+
+  return streamOpenAICompletions(makoraModel, context, {
+    ...streamOptions,
+    reasoningEffort,
+    apiKey,
+    ...(onPayload ? { onPayload } : {}),
+  });
+}
+
 // Extension Entry Point
 
 const PROVIDER_ID = "makora";
@@ -206,12 +387,16 @@ const allMakoraModels = buildModels(
 export default function (pi: ExtensionAPI) {
   const models = allMakoraModels;
 
-  // apiKey resolution order: auth.json ("makora" key) → MAKORA_OPTIMIZE_TOKEN env var
+  // apiKey resolution order: auth.json ("makora" key) → MAKORA_OPTIMIZE_TOKEN env var.
+  // `api: "makora"` + `streamSimple` routes every Makora model through streamMakora
+  // (above), which delegates to pi-ai's OpenAI completions streamer and injects
+  // per-model chat_template_kwargs via onPayload.
   pi.registerProvider(PROVIDER_ID, {
     name: "Makora",
     baseUrl: BASE_URL,
     apiKey: "$MAKORA_OPTIMIZE_TOKEN",
-    api: "openai-completions",
+    api: "makora",
+    streamSimple: streamMakora,
     models,
   });
 
