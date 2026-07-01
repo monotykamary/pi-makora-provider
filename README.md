@@ -160,21 +160,31 @@ Do **not** edit `models.json` directly — it is auto-generated from the API. To
 
 ## Death-Loop Guard
 
-GLM 5.2 (NVFP4 / FP8) occasionally degenerates into a repetition loop — an
-unbroken run of a single character or token, spaced or not (observed: `!` →
-`!!!!...`, `0` → `0000...`, and `0` → `0 0 0 ...`) — that eats the whole
-response. This extension ships a guard that watches the streamed assistant
-output (both the visible answer and the reasoning trace) and, when it detects a
-long run of any one non-whitespace character **or token**, **aborts
-the runaway generation and resumes the agentic loop invisibly** — no new user
-message is injected, using the
-[pi-invisible-continue](https://github.com/monotykamary/pi-invisible-continue)
+GLM 5.2 (NVFP4 / FP8) occasionally degenerates into a repetition loop that
+eats the whole response. Several shapes are possible: an unbroken run of one
+character (`!` → `!!!!...`, `0` → `0000...`), a spaced token loop (`0` →
+`0 0 0 ...`), a short unit repeated under any delimiter (`{}` → `{},{},{},...`),
+and a line/template loop where every line differs at the token level (a log-line
+loop with incrementing timestamps and cycling names). This extension ships a
+guard that watches the streamed assistant output (both the visible answer and
+the reasoning trace) with four detectors — character run, token run,
+trailing-unit run, and normalized-line run — and on a trip it **aborts the
+runaway generation, removes the toxic message from the agent's transcript, and
+resumes the agentic loop invisibly** — no new user message is injected, using
+the [pi-invisible-continue](https://github.com/monotykamary/pi-invisible-continue)
 pattern (`agent.prompt([])`).
 
-On abort, pi finalizes the in-flight assistant message **with its accumulated
-repeated-character content** into the transcript, so the guard drops that
-partial message before resuming — otherwise the model would just re-read its
-own repeated text and loop again. Recovery retries **indefinitely with exponential backoff (2s→60s,
+Aborting alone isn't enough: the toxic text would stay in the agent's
+persisted transcript and bias later turns (the model re-rolls into ever more
+obscure loops), and any loop that completes without being aborted is committed
+outright. So the guard also **removes the toxic output from the agent itself**:
+a `message_end` handler replaces a degenerate (or aborted) assistant message
+with a clean stub before it is saved to the session file / shown in the TUI,
+and a `context` handler strips degenerate (and stub) assistant messages from
+the per-LLM-call message list so the model never re-sees them. The recovery
+trim also drops the last assistant message from `state.messages` before
+resuming, so the continued `agent.prompt([])` sends a clean context. Recovery
+retries **indefinitely with exponential backoff (2s→60s,
 2×)**, like [pi-retry](https://github.com/monotykamary/pi-retry) — long-horizon
 agent work can trip the loop many times in a session, so a retry cap would
 strand the agent mid-task. The loop exits only on a clean turn, a user abort
@@ -192,6 +202,12 @@ constants at the top of [`death-loop-guard.ts`](./death-loop-guard.ts):
 | `IGNORED_REPEAT_CHARS` | `space, tab, LF, CR, FF, VT` | Characters whose repetition never trips the guard. |
 | `TOKEN_REPEAT_THRESHOLD` | `40` | Consecutive identical whitespace-delimited tokens that trip the guard. Catches spaced loops like `0 0 0` that the character run can't see. |
 | `TOKEN_REPEAT_BUFFER_CHARS` | `1024` | Tail length kept for token-run detection. Must hold ≥ `TOKEN_REPEAT_THRESHOLD` copies of the repeated unit. |
+| `LINE_REPEAT_THRESHOLD` | `100` | Consecutive trailing lines sharing one normalized structure (digits→`#`, identifiers→`A`, whitespace collapsed) that trip the guard. Catches line/template loops (e.g. a log-line loop with incrementing timestamps / cycling names) invisible to the char and token runs. Set high to spare typical structured output (tables, CSVs); degenerate loops produce hundreds-to-thousands of lines. |
+| `LINE_REPEAT_BUFFER_CHARS` | `65536` | Tail length kept for line-run detection. Only the last `LINE_REPEAT_THRESHOLD + 8` complete lines are normalized per check. |
+| `UNIT_REPEAT_THRESHOLD` | `40` | Trailing repeats of a short unit (1–`UNIT_MAX_LENGTH` chars) under ANY delimiter (or none) that trip the guard. The delimiter-agnostic catch-all: catches `{},{},{}` (unit `{},`), `();();();` (unit `();`), and any separator the char/token runs can't see. |
+| `UNIT_MAX_LENGTH` | `16` | Maximum candidate unit length for trailing-unit detection. Repeating units are short; 16 covers `{},`, `();`, `->` with room to spare. |
+| `UNIT_REPEAT_BUFFER_CHARS` | `1024` | Tail length kept for trailing-unit detection. Must hold ≥ `UNIT_REPEAT_THRESHOLD` copies of the longest unit (40 × 16 = 640). |
+| `DEATH_LOOP_STUB_TEXT` | `[Makora death-loop guard: discarded a degenerate repetition loop.]` | Clean replacement swapped in at `message_end` so a death-loop message is removed from the saved transcript. A `context` handler also strips this stub from what the model sees. |
 | `BACKOFF_BASE_MS` | `2000` | Initial recovery backoff delay. |
 | `BACKOFF_MAX_MS` | `60000` | Maximum backoff delay (cap). |
 | `BACKOFF_MULTIPLIER` | `2` | Backoff growth factor per retry. |

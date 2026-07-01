@@ -21,12 +21,14 @@
  *   - Llama 3.3 70B: not a reasoning model.
  *
  * A death-loop guard (see ./death-loop-guard.ts) is registered alongside the
- * provider. It watches the assistant text stream on the GLM 5.2 family and,
- * if the model falls into a degenerate repetition loop — an unbroken run of a
- * single character or token, spaced or not (observed: `!!!!`, `0000`, `0 0 0`)
- * — it aborts the runaway generation and resumes the agentic loop invisibly
- * via agent.prompt([]) (the pi-invisible-continue pattern); no new user
- * message is injected.
+ * provider. It watches the assistant text stream on the GLM 5.2 family with
+ * four detectors — character run, token run, trailing-unit run, and
+ * normalized-line run — and, if the model falls into a degenerate repetition
+ * loop (observed: `!!!!`, `0000`, `0 0 0`, `{},{},{}`, and a structured
+ * log-line loop), it aborts the runaway generation, removes the toxic message
+ * from the agent's transcript (so it can't bias later turns), and resumes the
+ * agentic loop invisibly via agent.prompt([]) (the pi-invisible-continue
+ * pattern); no new user message is injected.
  *
  * Developer role is NOT supported by any of the chat templates on Makora's
  * vLLM deployment (prompts with role: "developer" are silently dropped).
@@ -400,8 +402,10 @@ export default function (pi: ExtensionAPI) {
     models,
   });
 
-  // Abort runaway repetition loops — a single character or token, spaced or
-  // not (e.g. '!!!!', '0000', '0 0 0') — on the GLM 5.2 family and resume the
-  // agentic loop invisibly (no new user message). See ./death-loop-guard.ts.
+  // Abort runaway repetition loops — a single character, a spaced token, a
+  // delimiter-joined unit, or a structured line/template loop (e.g. '!!!!',
+  // '0000', '0 0 0', '{},{}', a log-line loop) — on the GLM 5.2 family; remove
+  // the toxic output from the agent's transcript and resume the agentic loop
+  // invisibly (no new user message). See ./death-loop-guard.ts.
   registerDeathLoopGuard(pi);
 }

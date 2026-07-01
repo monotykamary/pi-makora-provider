@@ -2,16 +2,29 @@
  * Death-loop guard for Makora reasoning models.
  *
  * Some Makora models (notably GLM 5.2 NVFP4 / FP8) occasionally fall into a
- * degenerate repetition loop, emitting an unbroken run of a single character
- * (observed: '!' -> "!!!!..." and '0' -> "0000...") or a repeated token
- * (observed: '0' -> "0 0 0 ...") that consumes the whole response. This guard
- * watches the
- * streamed assistant output (both the visible answer and the reasoning
- * trace); when that run is detected it aborts the runaway generation, drops
- * the partial (toxic) assistant message from the transcript, and resumes the
- * agentic loop invisibly via agent.prompt([]) — the same pattern
- * pi-invisible-continue / pi-retry uses, so no new user message pollutes the
- * context.
+ * degenerate repetition loop that consumes the whole response. Several shapes
+ * are possible: an unbroken run of one character ('!' -> "!!!!...", '0' ->
+ * "0000..."), a spaced token loop ('0' -> "0 0 0 ..."), a short unit repeated
+ * under any delimiter ('{}' -> "{},{},{},..."), and a line/template loop where
+ * every line differs at the token level (a log-line loop with incrementing
+ * timestamps and cycling names). This guard watches the streamed assistant
+ * output (both the visible answer and the reasoning trace) with four detectors
+ * — character run, token run, trailing-unit run, and normalized-line run —
+ * and on a trip it (1) aborts the runaway generation, (2) removes the toxic
+ * message from the agent itself, and (3) resumes the agentic loop invisibly
+ * via agent.prompt([]) (the pi-invisible-continue / pi-retry pattern, so no
+ * new user message pollutes the context).
+ *
+ * Removal, not just suppression: aborting alone leaves the toxic text in the
+ * agent's persisted transcript, and any pattern that completes without being
+ * aborted is committed outright — both bias later turns (the model re-rolls
+ * into ever more obscure loops). So a message_end handler replaces a
+ * degenerate/aborted assistant message with a clean stub BEFORE it is saved to
+ * the session file / shown in the TUI, and a context handler strips degenerate
+ * (and stub) assistant messages from the per-LLM-call message list so the
+ * model never re-sees them. The recovery trim also drops the last assistant
+ * message from state.messages so the resumed prompt([]) sends a clean
+ * continuation context.
  *
  * Infinite retries with exponential backoff. Long-horizon agent work can trip
  * the loop many times in one session; capping retries would strand the agent
@@ -21,12 +34,16 @@
  * window to intervene; interruptible sleep polls every 100ms so Esc and /new
  * take effect within 100ms instead of waiting out the full delay.
  *
- * Why trim the aborted message: on abort, pi finalizes the in-flight
- * assistant message WITH its accumulated '!!!' content and stopReason
- * "aborted" into the transcript. Resuming from that context would re-feed
- * the toxic text to the model and likely re-trigger the loop. Dropping the
- * last (aborted) assistant message leaves the context ending at the prior
- * user/toolResult message — a clean continuation point.
+ * Why trim AND scrub the aborted message: on abort, pi finalizes the
+ * in-flight assistant message WITH its accumulated toxic content and
+ * stopReason "aborted" into the transcript (the Agent pushes it to
+ * state.messages before event listeners run). Resuming from that context
+ * would re-feed the toxic text to the model and likely re-trigger the loop.
+ * The message_end handler swaps that content for a clean stub in the saved
+ * transcript; trimAbortedDeathLoop then drops the last assistant message from
+ * state.messages so the resumed prompt([]) sends a context ending at the prior
+ * user/toolResult — a clean continuation point. The context handler
+ * backstops any case that bypasses the recovery path.
  *
  * Distinguishing our abort from a user Esc: both call agent.abort(), so both
  * surface as stopReason "aborted" at turn_end. The handler sets _weAborted
@@ -97,6 +114,47 @@ export const TOKEN_REPEAT_THRESHOLD = 40;
  *  copies of tokens up to ~25 chars. */
 export const TOKEN_REPEAT_BUFFER_CHARS = 1024;
 
+/** Trip after this many consecutive trailing lines that share the same
+ *  normalized structure (digits -> '#', identifiers -> 'A', whitespace
+ *  collapsed). Catches template/line-level repetition where every line differs
+ *  at the token level (incrementing timestamps, cycling names) — e.g. a
+ *  log-line loop — which neither the character nor the token run can see. Set
+ *  high (100): structural repetition is the most false-positive-prone (markdown
+ *  tables, CSVs), while degenerate loops produce hundreds-to-thousands of
+ *  lines, so a high threshold catches them fast while sparing typical structured
+ *  output. Tunable. */
+export const LINE_REPEAT_THRESHOLD = 100;
+
+/** Bounded tail kept for line-run detection. Only the last
+ *  (LINE_REPEAT_THRESHOLD + 8) complete lines are normalized per check, so cost
+ *  stays bounded regardless of buffer size; the buffer just needs to hold that
+ *  many lines. 65536 fits ~100 lines up to ~600 chars. */
+export const LINE_REPEAT_BUFFER_CHARS = 65536;
+
+/** Trip after this many trailing repeats of a short unit (1..UNIT_MAX_LENGTH
+ *  chars) under any delimiter (or none). The delimiter-agnostic catch-all: it
+ *  catches `{},{},{}` (unit `{},`), `();();();` (unit `();`), and any future
+ *  separator the char/token runs can't see. 40 mirrors the other thresholds. */
+export const UNIT_REPEAT_THRESHOLD = 40;
+
+/** Maximum candidate unit length for trailing-unit detection. Repeating units
+ *  are short; 16 covers multi-char units like `{},` (3), `();` (3), `->` (2)
+ *  with room to spare. */
+export const UNIT_MAX_LENGTH = 16;
+
+/** Bounded tail kept for trailing-unit detection. Must hold >=
+ *  UNIT_REPEAT_THRESHOLD copies of the longest unit: 40 * 16 = 640, so 1024
+ *  gives comfortable margin. */
+export const UNIT_REPEAT_BUFFER_CHARS = 1024;
+
+/** Replacement content for a finalized assistant message that was a death
+ *  loop. The toxic text is removed from the agent's persisted transcript
+ *  (session file + TUI) by replacing it with this clean stub at message_end,
+ *  and a context handler strips even this stub from what the model sees, so
+ *  neither the toxic output nor the stub biases later turns. */
+export const DEATH_LOOP_STUB_TEXT =
+  "[Makora death-loop guard: discarded a degenerate repetition loop.]";
+
 /** Exponential backoff for recovery retries. Mirrors pi-retry's defaults:
  *  2s base, 60s cap, 2× multiplier. Tunable via these constants. */
 export const BACKOFF_BASE_MS = 2000;
@@ -119,6 +177,8 @@ export interface GuardedMessage {
   role: string;
   stopReason?: string;
   content?: unknown;
+  provider?: string;
+  model?: string;
 }
 
 export interface GuardedAgent {
@@ -145,11 +205,22 @@ let _trailingRunLen = 0;
  *  identical tokens. Capped to keep memory/cost bounded on long streams. */
 let _tokenRepeatBuffer = "";
 
+/** Bounded trailing buffer for line/template repetition detection (e.g. a
+ *  log-line loop where every line differs at the token level). Only complete
+ *  lines are inspected, and only the last few are normalized per check. */
+let _lineRepeatBuffer = "";
+
+/** Bounded trailing buffer for trailing-unit (delimiter-agnostic) repetition
+ *  detection (e.g. "{},{},{}"). */
+let _unitRepeatBuffer = "";
+
 /** Reset all per-turn/per-block detection state. */
 function resetDetection(): void {
   _trailingRunChar = "";
   _trailingRunLen = 0;
   _tokenRepeatBuffer = "";
+  _lineRepeatBuffer = "";
+  _unitRepeatBuffer = "";
 }
 
 /** Latch: already tripped for the current assistant message. */
@@ -322,6 +393,147 @@ export function isDegenerateTokenRun(
   return run.count >= threshold && run.token !== "";
 }
 
+/** A trailing run of consecutive lines sharing one normalized structure.
+ *  `template` is "" when `count` === 0. */
+export interface LineRun {
+  template: string;
+  count: number;
+}
+
+/** Normalize a line for structural repetition detection: identifiers -> "A",
+ *  digit runs -> "#", runs of spaces/tabs collapsed to one, trailing whitespace
+ *  trimmed. Lines that differ only in filler (timestamps, names, numbers, ids)
+ *  collapse to the same template, so a log-line loop like
+ *  "... User logged in: alice" / "... bob" / "... carol" maps to one template. */
+export function normalizeLine(line: string): string {
+  return line
+    .replace(/[A-Za-z_][A-Za-z0-9_]*/g, "A")
+    .replace(/[0-9]+/g, "#")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]+$/, "");
+}
+
+/** Trailing run of consecutive lines with the same normalized structure in
+ *  `text`. Only COMPLETE lines (terminated by a newline) are counted — the
+ *  trailing partial line is ignored so a mid-stream truncation can't break or
+ *  inflate the run. Only the last `maxScan` complete lines are normalized, so
+ *  cost is bounded regardless of `text` length. Blank trailing lines are
+ *  skipped (legitimate blank lines must not trip the guard). */
+export function trailingLineRun(
+  text: string,
+  maxScan: number = LINE_REPEAT_THRESHOLD + 8,
+): LineRun {
+  if (!text.includes("\n")) return { template: "", count: 0 };
+  const parts = text.split("\n");
+  parts.pop(); // drop the partial/empty segment after the last newline
+  if (parts.length === 0) return { template: "", count: 0 };
+  const lines = parts.slice(-maxScan).map(normalizeLine);
+  let end = lines.length;
+  while (end > 0 && lines[end - 1] === "") end--;
+  if (end === 0) return { template: "", count: 0 };
+  const template = lines[end - 1];
+  let count = 1;
+  let i = end - 1;
+  while (i > 0 && lines[i - 1] === template) {
+    count++;
+    i--;
+  }
+  return { template, count };
+}
+
+/** True when a trailing line run is long enough to be a degenerate loop.
+ *  Blank-line runs never count (template is ""). Exported for unit testing. */
+export function isDegenerateLineRun(
+  run: LineRun,
+  threshold: number = LINE_REPEAT_THRESHOLD,
+): boolean {
+  return run.count >= threshold && run.template !== "";
+}
+
+/** A trailing run of one repeated unit (1..UNIT_MAX_LENGTH chars), under any
+ *  delimiter (or none). `unit` is "" when `count` === 0. */
+export interface UnitRun {
+  unit: string;
+  count: number;
+}
+
+/** True when every char of `s` is a whitespace char we ignore (mirrors
+ *  IGNORED_REPEAT_CHARS). Keeps the unit detector from tripping on
+ *  pure-whitespace units (indentation, blank lines). */
+function isAllWhitespace(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    if (!IGNORED_REPEAT_CHARS.has(s[i])) return false;
+  }
+  return s.length > 0;
+}
+
+/** Best trailing repetition of a short unit in `text`. For each candidate
+ *  period p (1..maxLength), takes the unit as the last p chars and counts how
+ *  many consecutive p-blocks ending at the tail equal it (a leading partial
+ *  block is ignored). Returns the run with the highest count. Delimiter-
+ *  agnostic, so it catches a short unit repeated under ANY separator (or none):
+ *  `!!!!` (unit `!`), `0 0 0` (unit `0 `), `{},{},{}` (unit `{},`), `();();();`
+ *  (unit `();`), etc.
+ *
+ *  Cost is paid only when repetition is present: on normal text every
+ *  candidate mismatches its first block, so the whole check is O(maxLength)
+ *  slices; a real repeat does O(text.length) work — exactly what we want to
+ *  detect. Operates on a bounded tail buffer. */
+export function trailingUnitRun(
+  text: string,
+  maxLength: number = UNIT_MAX_LENGTH,
+): UnitRun {
+  const n = text.length;
+  if (n < 2) return { unit: "", count: 0 };
+  let best: UnitRun = { unit: "", count: 0 };
+  const maxP = Math.min(maxLength, n);
+  for (let p = 1; p <= maxP; p++) {
+    const unit = text.slice(n - p);
+    let count = 1;
+    let start = n - p;
+    while (start - p >= 0 && text.slice(start - p, start) === unit) {
+      count++;
+      start -= p;
+    }
+    if (count > best.count) best = { unit, count };
+  }
+  return best;
+}
+
+/** True when a trailing unit run is long enough to be a degenerate loop.
+ *  Pure-whitespace units never count (e.g. a run of spaces), matching the
+ *  character detector's whitespace exclusion. Exported for unit testing. */
+export function isDegenerateUnitRun(
+  run: UnitRun,
+  threshold: number = UNIT_REPEAT_THRESHOLD,
+): boolean {
+  return run.count >= threshold && run.unit !== "" && !isAllWhitespace(run.unit);
+}
+
+/** True when a finalized assistant message is a death loop by ANY detector
+ *  (character run, token run, trailing-unit run, or line/template run). Used by
+ *  the message_end scrubber, the context filter, and the recovery trim to
+ *  decide what to remove from the agent. */
+export function isDeathLoopMessage(msg: GuardedMessage): boolean {
+  if (msg.role !== "assistant") return false;
+  const text = extractText(msg.content);
+  if (text.length === 0) return false;
+  return (
+    isDegenerateRun(messageTrailingRun(msg)) ||
+    isDegenerateTokenRun(trailingTokenRun(text)) ||
+    isDegenerateUnitRun(trailingUnitRun(text)) ||
+    isDegenerateLineRun(trailingLineRun(text))
+  );
+}
+
+/** True when `msg` was produced by a guarded Makora model (so we only scrub
+ *  our own models' output, never another provider's). */
+export function isGuardedMessage(msg: GuardedMessage): boolean {
+  if (msg.provider !== PROVIDER_ID) return false;
+  if (GUARDED_MODEL_IDS.has("*")) return true;
+  return msg.model != null && GUARDED_MODEL_IDS.has(msg.model);
+}
+
 /** Exponential backoff delay, capped at maxDelayMs. Mirrors pi-retry. */
 export function calculateDelay(
   attempt: number,
@@ -369,9 +581,7 @@ function trimAbortedDeathLoop(agent: GuardedAgent): void {
   if (
     last &&
     last.role === "assistant" &&
-    (last.stopReason === "aborted" ||
-      isDegenerateRun(messageTrailingRun(last)) ||
-      isDegenerateTokenRun(trailingTokenRun(extractText(last.content))))
+    (last.stopReason === "aborted" || isDeathLoopMessage(last))
   ) {
     agent.state.messages = msgs.slice(0, -1);
   }
@@ -404,8 +614,8 @@ async function triggerRecovery(): Promise<void> {
       const delay = calculateDelay(attempt);
       if (_notifyFn) {
         _notifyFn(
-          `Makora death-loop guard: resuming after runaway repeated-character ` +
-            `output (retry ${attempt}, backoff ${formatDuration(delay)})...`,
+          `Makora death-loop guard: resuming after a runaway repetition loop ` +
+            `(retry ${attempt}, backoff ${formatDuration(delay)})...`,
           "warning",
         );
       }
@@ -520,7 +730,39 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     );
     const tokenRun = trailingTokenRun(_tokenRepeatBuffer);
 
-    if (!isDegenerateRun(run) && !isDegenerateTokenRun(tokenRun)) return;
+    // Line/template repetition: a structured loop (e.g. a log-line loop where
+    // every line differs at the token level — incrementing timestamps, cycling
+    // names) is invisible to both the char and token runs. Track the recent
+    // tail and, when a line completes (a newline arrives), count consecutive
+    // lines sharing one normalized structure. Recomputed only on newline
+    // deltas; the trailing partial line is ignored by trailingLineRun.
+    let lineRun: LineRun = { template: "", count: 0 };
+    if (ame.delta.includes("\n")) {
+      _lineRepeatBuffer = (_lineRepeatBuffer + ame.delta).slice(
+        -LINE_REPEAT_BUFFER_CHARS,
+      );
+      lineRun = trailingLineRun(_lineRepeatBuffer);
+    }
+
+    // Trailing-unit repetition: a short unit repeated under ANY delimiter (or
+    // none) — e.g. "{},{},{}" (unit "{},"), "();();();" (unit "();") — is
+    // invisible to the char run (the separator resets it) and the token run
+    // (whitespace-only splitter). This general detector catches it by finding
+    // any short period whose trailing blocks repeat. Runs every delta; cheap
+    // on normal text (each candidate mismatches its first block).
+    _unitRepeatBuffer = (_unitRepeatBuffer + ame.delta).slice(
+      -UNIT_REPEAT_BUFFER_CHARS,
+    );
+    const unitRun = trailingUnitRun(_unitRepeatBuffer);
+
+    if (
+      !isDegenerateRun(run) &&
+      !isDegenerateTokenRun(tokenRun) &&
+      !isDegenerateLineRun(lineRun) &&
+      !isDegenerateUnitRun(unitRun)
+    ) {
+      return;
+    }
 
     // Trip: abort the runaway stream and kick off the recovery loop (once,
     // mutex-gated). The loop driver handles re-detection on resumed turns.
@@ -529,7 +771,7 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     const agent = _agent;
     if (!agent) {
       ctx.ui.notify(
-        "Makora death-loop guard: runaway repeated-character output detected " +
+        "Makora death-loop guard: runaway repetition loop detected " +
           "but the Agent instance was not captured; cannot recover automatically.",
         "warning",
       );
@@ -560,5 +802,54 @@ export function registerDeathLoopGuard(pi: ExtensionAPI): void {
     if (!_notifyFn) {
       _notifyFn = (message, level) => ctx.ui.notify(message, level);
     }
+  });
+
+  // Remove degenerate output from the agent's persisted transcript. When a
+  // finalized assistant message is a death loop (or one we aborted), replace
+  // its content with a clean stub BEFORE it is saved to the session file /
+  // shown in the TUI. Trimming state.messages only cleans the in-memory
+  // continuation context; this cleans the saved record too, so the toxic text
+  // can't bias a later /resume. (The Agent pushes the original message to
+  // state.messages before this event fires; trimAbortedDeathLoop drops it.)
+  pi.on("message_end", (event) => {
+    const msg = event.message as GuardedMessage;
+    if (msg.role !== "assistant") return;
+    if (!isGuardedMessage(msg)) return;
+    if (!isDeathLoopMessage(msg) && !_weAborted) return;
+    return {
+      message: {
+        ...event.message,
+        content: [{ type: "text", text: DEATH_LOOP_STUB_TEXT }],
+      },
+    };
+  });
+
+  // Defense-in-depth: before each LLM call, strip any degenerate (or stub)
+  // assistant message from the trailing messages so the model never re-sees
+  // toxic output — covering user-prompt turns and resumed sessions even when a
+  // loop completed without being aborted. The recovery's direct
+  // agent.prompt([]) bypasses this event (the state.messages trim covers that
+  // path). Only the last ~32 messages are scanned: degenerate output, if
+  // present, is recent, and stubs left in context are clean (non-biasing).
+  pi.on("context", (event) => {
+    const messages = event.messages;
+    if (!messages || messages.length === 0) return;
+    const scanFrom = Math.max(0, messages.length - 32);
+    let changed = false;
+    const filtered = messages.filter((m, i) => {
+      if (i < scanFrom || m.role !== "assistant") return true;
+      const text = extractText((m as GuardedMessage).content);
+      const isToxic =
+        text.length >= 1000 &&
+        isGuardedMessage(m as GuardedMessage) &&
+        isDeathLoopMessage(m as GuardedMessage);
+      if (isToxic || text === DEATH_LOOP_STUB_TEXT) {
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+    if (!changed) return;
+    return { messages: filtered };
   });
 }

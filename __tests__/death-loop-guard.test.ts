@@ -11,27 +11,40 @@
 import { describe, expect, it } from "vitest";
 import {
   BANG_THRESHOLD,
-  REPEAT_THRESHOLD,
-  TOKEN_REPEAT_THRESHOLD,
-  TOKEN_REPEAT_BUFFER_CHARS,
   BACKOFF_BASE_MS,
   BACKOFF_MAX_MS,
   BACKOFF_MULTIPLIER,
   DEFAULT_BACKOFF_CONFIG,
+  DEATH_LOOP_STUB_TEXT,
   GUARDED_MODEL_IDS,
   IGNORED_REPEAT_CHARS,
+  LINE_REPEAT_BUFFER_CHARS,
+  LINE_REPEAT_THRESHOLD,
+  REPEAT_THRESHOLD,
+  TOKEN_REPEAT_THRESHOLD,
+  TOKEN_REPEAT_BUFFER_CHARS,
+  UNIT_MAX_LENGTH,
+  UNIT_REPEAT_BUFFER_CHARS,
+  UNIT_REPEAT_THRESHOLD,
   calculateDelay,
   extractText,
   formatDuration,
+  isDeathLoopMessage,
+  isDegenerateLineRun,
   isDegenerateRun,
   isDegenerateTokenRun,
+  isDegenerateUnitRun,
+  isGuardedMessage,
   isGuardedModel,
   messageTrailingBangs,
   messageTrailingRun,
   nextTrailingBangs,
   nextTrailingRun,
+  normalizeLine,
   registerDeathLoopGuard,
+  trailingLineRun,
   trailingTokenRun,
+  trailingUnitRun,
 } from "../death-loop-guard.js";
 
 describe("death-loop-guard config", () => {
@@ -76,6 +89,28 @@ describe("death-loop-guard config", () => {
     expect(TOKEN_REPEAT_BUFFER_CHARS).toBeGreaterThanOrEqual(
       TOKEN_REPEAT_THRESHOLD * 2,
     );
+  });
+
+  it("exports line-repeat thresholds for structured loops", () => {
+    expect(LINE_REPEAT_THRESHOLD).toBeGreaterThanOrEqual(20);
+    // Buffer must hold many complete lines beyond the threshold.
+    expect(LINE_REPEAT_BUFFER_CHARS).toBeGreaterThanOrEqual(
+      LINE_REPEAT_THRESHOLD * 2,
+    );
+  });
+
+  it("exports unit-repeat thresholds for delimiter-joined loops", () => {
+    expect(UNIT_REPEAT_THRESHOLD).toBeGreaterThanOrEqual(20);
+    expect(UNIT_MAX_LENGTH).toBeGreaterThanOrEqual(2);
+    // Buffer must hold threshold copies of the longest candidate unit.
+    expect(UNIT_REPEAT_BUFFER_CHARS).toBeGreaterThanOrEqual(
+      UNIT_REPEAT_THRESHOLD * UNIT_MAX_LENGTH,
+    );
+  });
+
+  it("exports a non-empty death-loop stub text", () => {
+    expect(typeof DEATH_LOOP_STUB_TEXT).toBe("string");
+    expect(DEATH_LOOP_STUB_TEXT.length).toBeGreaterThan(0);
   });
 });
 
@@ -276,6 +311,305 @@ describe("character vs token detection coverage", () => {
     let charRun = { char: "", len: 0 };
     for (const ch of unspaced) charRun = nextTrailingRun(charRun, ch);
     expect(isDegenerateRun(charRun)).toBe(true);
+  });
+
+  it("a structured log loop is NOT a char/token run but IS a line/template run", () => {
+    const names = ["alice", "bob", "carol", "dave"];
+    const lines: string[] = [];
+    for (let i = 0; i < 100; i++)
+      lines.push(
+        `2025-11-12 11:31:42,${String(i).padStart(3, "0")} [0.0.0.0:54321] DEBUG: User logged in: ${names[i % names.length]}`,
+      );
+    const text = lines.join("\n") + "\n";
+    // Last char is a newline (whitespace) -> no char run.
+    expect(
+      isDegenerateRun(messageTrailingRun({ role: "assistant", content: text })),
+    ).toBe(false);
+    // Last token differs per line -> no token run.
+    expect(isDegenerateTokenRun(trailingTokenRun(text))).toBe(false);
+    // But every line shares one normalized structure -> line run trips.
+    expect(isDegenerateLineRun(trailingLineRun(text))).toBe(true);
+  });
+});
+
+describe("normalizeLine", () => {
+  it("maps identifiers to A and digit runs to #", () => {
+    expect(normalizeLine("User logged in: alice")).toBe("A A A: A");
+    expect(normalizeLine("User logged in: bob")).toBe("A A A: A");
+  });
+
+  it("maps pure numbers to #", () => {
+    expect(normalizeLine("2025-11-12 11:31:42,000")).toBe("#-#-# #:#:#,#");
+  });
+
+  it("collapses runs of spaces/tabs to one and trims trailing whitespace", () => {
+    expect(normalizeLine("a   b\tc   ")).toBe("A A A");
+    expect(normalizeLine("\t\tx  ")).toBe(" A");
+  });
+
+  it("leaves structural punctuation intact", () => {
+    expect(normalizeLine("[0.0.0.0:54321] DEBUG:")).toBe("[#.#.#.#:#] A:");
+  });
+
+  it("returns empty for an empty/whitespace-only line", () => {
+    expect(normalizeLine("")).toBe("");
+    expect(normalizeLine("   ")).toBe("");
+    expect(normalizeLine("\t")).toBe("");
+  });
+});
+
+describe("trailingLineRun", () => {
+  const logLine = (i: number, name: string) =>
+    `2025-11-12 11:31:42,${String(i).padStart(3, "0")} [0.0.0.0:54321] DEBUG: User logged in: ${name}`;
+  const names = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi"];
+  const TEMPLATE = "#-#-# #:#:#,# [#.#.#.#:#] A: A A A: A";
+
+  it("returns an empty run when there are no complete lines", () => {
+    expect(trailingLineRun("")).toEqual({ template: "", count: 0 });
+    expect(trailingLineRun("no newline here")).toEqual({ template: "", count: 0 });
+  });
+
+  it("counts a single complete line as a run of 1", () => {
+    expect(trailingLineRun("hello\n")).toEqual({ template: "A", count: 1 });
+  });
+
+  it("counts consecutive lines with the same normalized structure", () => {
+    const text =
+      [0, 1, 2, 3].map((i) => logLine(i, names[i % names.length])).join("\n") + "\n";
+    const run = trailingLineRun(text);
+    expect(run.count).toBe(4);
+    expect(run.template).toBe(TEMPLATE);
+  });
+
+  it("ignores the trailing partial (mid-stream) line", () => {
+    const complete =
+      [0, 1, 2].map((i) => logLine(i, names[i % names.length])).join("\n") + "\n";
+    const text = complete + "partial line with no newline";
+    expect(trailingLineRun(text).count).toBe(3);
+  });
+
+  it("stops at the first line with a different structure", () => {
+    const text =
+      "header line\n" +
+      [0, 1, 2].map((i) => logLine(i, names[i % names.length])).join("\n") +
+      "\n";
+    const run = trailingLineRun(text);
+    expect(run.count).toBe(3);
+    expect(run.template).toBe(TEMPLATE);
+  });
+
+  it("skips trailing blank lines and does not trip on them", () => {
+    const text =
+      [0, 1, 2].map((i) => logLine(i, names[i % names.length])).join("\n") +
+      "\n\n\n";
+    expect(trailingLineRun(text).count).toBe(3);
+  });
+
+  it("detects a 100-line structural log loop (the colleague case)", () => {
+    const lines: string[] = [];
+    for (let i = 0; i < 100; i++) lines.push(logLine(i, names[i % names.length]));
+    const text = lines.join("\n") + "\n";
+    expect(trailingLineRun(text).count).toBe(100);
+  });
+});
+
+describe("isDegenerateLineRun", () => {
+  it("is false below the threshold", () => {
+    expect(isDegenerateLineRun({ template: "A A A: A", count: 99 })).toBe(false);
+  });
+
+  it("trips at/above the threshold for a non-empty template", () => {
+    expect(isDegenerateLineRun({ template: "A A A: A", count: 100 })).toBe(true);
+    expect(isDegenerateLineRun({ template: "#-#-# #", count: 150 })).toBe(true);
+  });
+
+  it("never trips on a blank-line run", () => {
+    expect(isDegenerateLineRun({ template: "", count: 100 })).toBe(false);
+    expect(isDegenerateLineRun({ template: "", count: 10_000 })).toBe(false);
+  });
+
+  it("honors a custom threshold", () => {
+    expect(isDegenerateLineRun({ template: "A", count: 5 }, 10)).toBe(false);
+    expect(isDegenerateLineRun({ template: "A", count: 10 }, 10)).toBe(true);
+  });
+});
+
+describe("trailingUnitRun", () => {
+  it("returns an empty run for text too short to repeat", () => {
+    expect(trailingUnitRun("")).toEqual({ unit: "", count: 0 });
+    expect(trailingUnitRun("a")).toEqual({ unit: "", count: 0 });
+  });
+
+  it("detects a single-character unit (!!!!)", () => {
+    expect(trailingUnitRun("!".repeat(40))).toEqual({ unit: "!", count: 40 });
+  });
+
+  it("detects a multi-char unit under a delimiter ({},{},{})", () => {
+    expect(trailingUnitRun("{},".repeat(40))).toEqual({ unit: "{},", count: 40 });
+  });
+
+  it("detects a multi-char unit with no delimiter ({}{}{})", () => {
+    expect(trailingUnitRun("{}".repeat(40))).toEqual({ unit: "{}", count: 40 });
+  });
+
+  it("detects a spaced unit (0 0 0)", () => {
+    const run = trailingUnitRun("0 ".repeat(40));
+    expect(run.count).toBeGreaterThanOrEqual(40);
+    expect(run.unit).toBe("0 ");
+  });
+
+  it("ignores a leading partial block (mid-stream truncation)", () => {
+    // A partial "{}" before the full "{},{}" blocks must not reduce the count.
+    const text = "{}" + "{},".repeat(40);
+    expect(trailingUnitRun(text).count).toBe(40);
+  });
+
+  it("returns a low count for non-repeating prose", () => {
+    const run = trailingUnitRun(
+      "The quick brown fox jumps over the lazy dog.",
+    );
+    expect(run.count).toBeLessThan(10);
+  });
+
+  it("honors a custom max length", () => {
+    // Unit "ab" (length 2) is found when maxLength >= 2.
+    expect(trailingUnitRun("ab".repeat(40), 2).count).toBe(40);
+    // With maxLength 1 only single-char periods are considered -> no "ab" run.
+    expect(trailingUnitRun("ab".repeat(40), 1).count).toBe(1);
+  });
+});
+
+describe("isDegenerateUnitRun", () => {
+  it("is false below the threshold", () => {
+    expect(isDegenerateUnitRun({ unit: "{},", count: 39 })).toBe(false);
+  });
+
+  it("trips at/above the threshold for a non-whitespace unit", () => {
+    expect(isDegenerateUnitRun({ unit: "{},", count: 40 })).toBe(true);
+    expect(isDegenerateUnitRun({ unit: "!", count: 100 })).toBe(true);
+  });
+
+  it("never trips on a pure-whitespace unit", () => {
+    expect(isDegenerateUnitRun({ unit: " ", count: 100 })).toBe(false);
+    expect(isDegenerateUnitRun({ unit: "   ", count: 100 })).toBe(false);
+  });
+
+  it("is false for an empty unit", () => {
+    expect(isDegenerateUnitRun({ unit: "", count: 0 })).toBe(false);
+    expect(isDegenerateUnitRun({ unit: "", count: 100 })).toBe(false);
+  });
+
+  it("honors a custom threshold", () => {
+    expect(isDegenerateUnitRun({ unit: "ab", count: 5 }, 10)).toBe(false);
+    expect(isDegenerateUnitRun({ unit: "ab", count: 10 }, 10)).toBe(true);
+  });
+});
+
+describe("delimiter-joined unit detection coverage", () => {
+  it("'{},{},{}' is NOT a char/token/line run but IS a trailing-unit run", () => {
+    const text = "{},".repeat(40);
+    expect(
+      isDegenerateRun(messageTrailingRun({ role: "assistant", content: text })),
+    ).toBe(false);
+    expect(isDegenerateTokenRun(trailingTokenRun(text))).toBe(false);
+    expect(isDegenerateLineRun(trailingLineRun(text))).toBe(false);
+    expect(isDegenerateUnitRun(trailingUnitRun(text))).toBe(true);
+  });
+});
+
+describe("isDeathLoopMessage", () => {
+  const stub = {
+    role: "assistant",
+    provider: "makora",
+    model: "zai-org/GLM-5.2-NVFP4",
+  };
+
+  it("detects a character-run message", () => {
+    expect(isDeathLoopMessage({ ...stub, content: "code " + "!".repeat(40) })).toBe(
+      true,
+    );
+  });
+
+  it("detects a spaced token-run message", () => {
+    expect(isDeathLoopMessage({ ...stub, content: "0 ".repeat(40) })).toBe(true);
+  });
+
+  it("detects a delimiter-joined unit-loop message ({},{},{})", () => {
+    expect(isDeathLoopMessage({ ...stub, content: "{},".repeat(40) })).toBe(true);
+    expect(isDeathLoopMessage({ ...stub, content: "{}".repeat(40) })).toBe(true);
+  });
+
+  it("detects a structured line-loop message", () => {
+    const names = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi"];
+    const lines: string[] = [];
+    for (let i = 0; i < 100; i++)
+      lines.push(
+        `2025-11-12 11:31:42,${String(i).padStart(3, "0")} [0.0.0.0:54321] DEBUG: User logged in: ${names[i % names.length]}`,
+      );
+    expect(isDeathLoopMessage({ ...stub, content: lines.join("\n") + "\n" })).toBe(
+      true,
+    );
+  });
+
+  it("is false for clean prose", () => {
+    expect(
+      isDeathLoopMessage({
+        ...stub,
+        content: "The quick brown fox jumps over the lazy dog.",
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores non-assistant messages", () => {
+    expect(isDeathLoopMessage({ role: "user", content: "0 ".repeat(100) })).toBe(
+      false,
+    );
+  });
+
+  it("is false for empty content", () => {
+    expect(isDeathLoopMessage({ ...stub, content: "" })).toBe(false);
+    expect(
+      isDeathLoopMessage({ ...stub, content: [{ type: "thinking", text: "x" }] }),
+    ).toBe(false);
+  });
+});
+
+describe("isGuardedMessage", () => {
+  it("accepts a guarded GLM 5.2 message from the makora provider", () => {
+    expect(
+      isGuardedMessage({
+        role: "assistant",
+        provider: "makora",
+        model: "zai-org/GLM-5.2-NVFP4",
+      }),
+    ).toBe(true);
+    expect(
+      isGuardedMessage({
+        role: "assistant",
+        provider: "makora",
+        model: "zai-org/GLM-5.2-FP8",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects other makora models", () => {
+    expect(
+      isGuardedMessage({
+        role: "assistant",
+        provider: "makora",
+        model: "deepseek-ai/DeepSeek-V4-Pro",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects the right model on the wrong provider", () => {
+    expect(
+      isGuardedMessage({
+        role: "assistant",
+        provider: "openai",
+        model: "zai-org/GLM-5.2-NVFP4",
+      }),
+    ).toBe(false);
   });
 });
 
