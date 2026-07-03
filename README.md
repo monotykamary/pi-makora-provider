@@ -150,6 +150,45 @@ Do **not** edit `models.json` directly — it is auto-generated from the API. To
 ]
 ```
 
+## Preserved Thinking
+
+Reasoning models on Makora keep their chain-of-thought across turns by default:
+each turn's `reasoning` trace is rendered into the next prompt so the model
+recalls its prior deduction (better multi-turn recall for coding). By default
+this **follows the thinking switch** — preserve is on when thinking is on, and
+cleared when thinking is off — via the `{ "$var": "thinking.enabled" }` schema
+in `patch.json`.
+
+Use `/makora-settings` to pin preserved thinking **on or off per model**,
+independently of the thinking switch:
+
+- **Preserve Thinking** — keep every turn's reasoning trace in the next prompt.
+  Suited for coding, but can overthink on prose and costs tokens.
+- **Clear Thinking** — let the template drop older reasoning each turn. Lighter
+  and often better for prose, but can hurt multi-turn recall.
+
+Selections persist to `~/.pi/agent/extensions/makora.json` (`modelOverrides`,
+deep-merged on top of `patch.json`) and take effect immediately — the provider
+is re-registered on toggle, and a notification on model switch reports the
+current state.
+
+| Model | Flag |
+|---|---|
+| GLM 5.2 FP8 / NVFP4 | `clear_thinking` (false = preserve) |
+| Qwen 3.6 27B / 35B A3B | `preserve_thinking` |
+| Kimi K2.7 Code | `preserve_thinking` |
+
+You can also hand-edit `makora.json` directly:
+
+```json
+{
+  "modelOverrides": {
+    "zai-org/GLM-5.2-FP8": { "compat": { "chatTemplateKwargs": { "clear_thinking": true } } },
+    "unsloth/Qwen3.6-27B-NVFP4": { "compat": { "chatTemplateKwargs": { "preserve_thinking": false } } }
+  }
+}
+```
+
 ## API Notes
 
 - Each model is accessible at `https://inference.makora.com/v1/chat/completions` (unified endpoint)
