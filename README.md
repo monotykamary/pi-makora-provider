@@ -197,60 +197,28 @@ You can also hand-edit `makora.json` directly:
 - All models are hosted on vLLM
 - The `developer` role is not supported (prompts are silently dropped); `supportsDeveloperRole` is set to `false` for all models
 
-## Death-Loop Guard
+## NaN-Collapse Guard
 
-GLM 5.2 (NVFP4 / FP8) occasionally degenerates into a repetition loop that
-eats the whole response. Several shapes are possible: an unbroken run of one
-character (`!` → `!!!!...`, `0` → `0000...`), a spaced token loop (`0` →
-`0 0 0 ...`), a short unit repeated under any delimiter (`{}` → `{},{},{},...`),
-and a line/template loop where every line differs at the token level (a log-line
-loop with incrementing timestamps and cycling names). This extension ships a
-guard that watches the streamed assistant output (both the visible answer and
-the reasoning trace) with four detectors — character run, token run,
-trailing-unit run, and normalized-line run — and on a trip it **aborts the
-runaway generation, removes the toxic message from the agent's transcript, and
-resumes the agentic loop invisibly** — no new user message is injected, using
-the [pi-invisible-continue](https://github.com/monotykamary/pi-invisible-continue)
-pattern (`agent.prompt([])`).
+The GLM-5.2 NVFP4/FP8 quants have an engine-side bug: at long context (from
+~9k prompt tokens) the vLLM NVFP4 MoE prefill produces NaN logits, so the
+reasoning trace collapses into a single token repeated indefinitely (`!!!!…`
+here, `{},{},{},…` on other deployments), `finish_reason: length`. Requesting
+logprobs surfaces the root cause as HTTP 400 `Out of range float values are not
+JSON compliant: nan`. This is a vLLM numerical bug (matches vLLM #31856 /
+#47042), not a model or prompt issue.
 
-Aborting alone isn't enough: the toxic text would stay in the agent's
-persisted transcript and bias later turns (the model re-rolls into ever more
-obscure loops), and any loop that completes without being aborted is committed
-outright. So the guard also **removes the toxic output from the agent itself**:
-a `message_end` handler replaces a degenerate (or aborted) assistant message
-with a clean stub before it is saved to the session file / shown in the TUI,
-and a `context` handler strips degenerate (and stub) assistant messages from
-the per-LLM-call message list so the model never re-sees them. The recovery
-trim also drops the last assistant message from `state.messages` before
-resuming, so the continued `agent.prompt([])` sends a clean context. Recovery
-retries **indefinitely with exponential backoff (2s→60s,
-2×)**, like [pi-retry](https://github.com/monotykamary/pi-retry) — long-horizon
-agent work can trip the loop many times in a session, so a retry cap would
-strand the agent mid-task. The loop exits only on a clean turn, a user abort
-(Esc), or a session change (`/new`, `/resume`). Backoff is interruptible
-(polls every 100ms) so Esc and `/new` take effect within 100ms instead of
-waiting out the full delay.
+This extension ships a guard (`nan-collapse-guard.ts`) scoped to those quants.
+It detects the collapse as a **NaN-argmax onset fixed point** — the first ~64
+chars of the reasoning trace being one short unit (`!`, `{},`, `();`, …)
+repeated — instead of the old blanket repetition pattern-matcher, and recovers
+exactly as the old guard did: trim the degenerate turn and resume the agentic
+loop invisibly via `agent.prompt([])` (no new user message) with backoff,
+retrying until a clean turn, user abort, or session change. **It does not trim
+valid context** — only the degenerate turn is removed, so the user's session is
+preserved. The recurrence is the engine bug re-triggering as context grows;
+the guard catches each collapse early (at onset, ~4 tokens) instead of after
+a 15k-token `!` run.
 
-The guard is scoped to the Makora GLM 5.2 family by default and is tunable via
-constants at the top of [`death-loop-guard.ts`](./death-loop-guard.ts):
-
-| Constant | Default | Meaning |
-|---|---|---|
-| `GUARDED_MODEL_IDS` | `zai-org/GLM-5.2-NVFP4`, `zai-org/GLM-5.2-FP8` | Which model IDs to guard. Add `'*'` to guard every Makora model. |
-| `REPEAT_THRESHOLD` | `40` | Consecutive identical characters that trip the guard. Applies to any non-whitespace character (whitespace can legitimately repeat). 40 is far above anything normal prose/code produces. (`BANG_THRESHOLD` is kept as a deprecated alias.) |
-| `IGNORED_REPEAT_CHARS` | `space, tab, LF, CR, FF, VT` | Characters whose repetition never trips the guard. |
-| `TOKEN_REPEAT_THRESHOLD` | `40` | Consecutive identical whitespace-delimited tokens that trip the guard. Catches spaced loops like `0 0 0` that the character run can't see. |
-| `TOKEN_REPEAT_BUFFER_CHARS` | `1024` | Tail length kept for token-run detection. Must hold ≥ `TOKEN_REPEAT_THRESHOLD` copies of the repeated unit. |
-| `LINE_REPEAT_THRESHOLD` | `100` | Consecutive trailing lines sharing one normalized structure (digits→`#`, identifiers→`A`, whitespace collapsed) that trip the guard. Catches line/template loops (e.g. a log-line loop with incrementing timestamps / cycling names) invisible to the char and token runs. Set high to spare typical structured output (tables, CSVs); degenerate loops produce hundreds-to-thousands of lines. |
-| `LINE_REPEAT_BUFFER_CHARS` | `65536` | Tail length kept for line-run detection. Only the last `LINE_REPEAT_THRESHOLD + 8` complete lines are normalized per check. |
-| `UNIT_REPEAT_THRESHOLD` | `40` | Trailing repeats of a short unit (1–`UNIT_MAX_LENGTH` chars) under ANY delimiter (or none) that trip the guard. The delimiter-agnostic catch-all: catches `{},{},{}` (unit `{},`), `();();();` (unit `();`), and any separator the char/token runs can't see. |
-| `UNIT_MAX_LENGTH` | `16` | Maximum candidate unit length for trailing-unit detection. Repeating units are short; 16 covers `{},`, `();`, `->` with room to spare. |
-| `UNIT_REPEAT_BUFFER_CHARS` | `1024` | Tail length kept for trailing-unit detection. Must hold ≥ `UNIT_REPEAT_THRESHOLD` copies of the longest unit (40 × 16 = 640). |
-| `DEATH_LOOP_STUB_TEXT` | `[Makora death-loop guard: discarded a degenerate repetition loop.]` | Clean replacement swapped in at `message_end` so a death-loop message is removed from the saved transcript. A `context` handler also strips this stub from what the model sees. |
-| `BACKOFF_BASE_MS` | `2000` | Initial recovery backoff delay. |
-| `BACKOFF_MAX_MS` | `60000` | Maximum backoff delay (cap). |
-| `BACKOFF_MULTIPLIER` | `2` | Backoff growth factor per retry. |
-
-It is only active for the `makora` provider, so it never interferes when you
-switch to another provider. If you also run `pi-invisible-continue`, the two
-coexist — both chain the `Agent.prototype.subscribe` patch.
+Set `MAKORA_NAN_CANARY=1` to enable an optional preflight canary that probes
+the payload with `logprobs:true` and logs a `nan` flag for the engine team
+(off by default; adds latency on long contexts).

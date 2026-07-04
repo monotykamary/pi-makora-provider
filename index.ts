@@ -20,16 +20,6 @@
  *   - Qwen 3.6 models: returns `reasoning` field.
  *   - Llama 3.3 70B: not a reasoning model.
  *
- * A death-loop guard (see ./death-loop-guard.ts) is registered alongside the
- * provider. It watches the assistant text stream on the GLM 5.2 family with
- * four detectors — character run, token run, trailing-unit run, and
- * normalized-line run — and, if the model falls into a degenerate repetition
- * loop (observed: `!!!!`, `0000`, `0 0 0`, `{},{},{}`, and a structured
- * log-line loop), it aborts the runaway generation, removes the toxic message
- * from the agent's transcript (so it can't bias later turns), and resumes the
- * agentic loop invisibly via agent.prompt([]) (the pi-invisible-continue
- * pattern); no new user message is injected.
- *
  * Developer role is NOT supported by any of the chat templates on Makora's
  * vLLM deployment (prompts with role: "developer" are silently dropped).
  * supportsDeveloperRole is set to false for all models.
@@ -63,7 +53,7 @@ import { streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };
-import { registerDeathLoopGuard } from "./death-loop-guard.js";
+import { registerNanCollapseGuard, nanCanary, canaryEnabled, isGuardedModel } from "./nan-collapse-guard.js";
 import fs from "fs";
 import path from "path";
 
@@ -494,9 +484,22 @@ export function streamMakora(
     !!extraKwargs && typeof extraKwargs === "object" && Object.keys(extraKwargs).length > 0;
   const assistantReasoningField = (makoraModel as JsonModel).compat?.assistantReasoningField;
   const needsFieldCopy = !!assistantReasoningField;
+  const canaryOn = canaryEnabled() && isGuardedModel(makoraModel);
   const onPayload =
-    hasExtraKwargs || needsFieldCopy || userOnPayload
+    hasExtraKwargs || needsFieldCopy || userOnPayload || canaryOn
       ? async (params: any, mdl: any) => {
+          // Optional logprobs canary (MAKORA_NAN_CANARY=1): probe the same payload
+          // with logprobs:true/max_tokens:1; a 400-"nan" response flags a NaN
+          // prefill for the engine team. Diagnostic only (fire-and-forget) — the
+          // in-stream onset guard handles recovery. See ./nan-collapse-guard.ts.
+          if (canaryOn) {
+            void nanCanary(
+              params as Record<string, unknown>,
+              makoraModel.baseUrl,
+              apiKey,
+              makoraModel.id,
+            );
+          }
           let p = params;
           if (userOnPayload) {
             const next = await userOnPayload(p, mdl);
@@ -582,12 +585,16 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider(PROVIDER_ID, makeProviderConfig(builtModels()));
 
-  // Abort runaway repetition loops — a single character, a spaced token, a
-  // delimiter-joined unit, or a structured line/template loop (e.g. '!!!!',
-  // '0000', '0 0 0', '{},{}', a log-line loop) — on the GLM 5.2 family; remove
-  // the toxic output from the agent's transcript and resume the agentic loop
-  // invisibly (no new user message). See ./death-loop-guard.ts.
-  registerDeathLoopGuard(pi);
+  // Guard against the GLM-5.2 NVFP4/FP8 long-context NaN-logit collapse — the
+  // "death loop" root cause: cold/long-context prefill through the NVFP4 MoE
+  // path produces NaN logits at ~10k+ tokens → argmax-of-NaN ("!" / "{},") fixed
+  // point → infinite repetition; streaming silently aborts. Scoped to the
+  // known-bad models + a token gate, detects the NaN signature at reasoning
+  // onset, and recovers by reducing context below the threshold before
+  // resuming (the old blanket detector trimmed only the symptom and recurred
+  // 6×). Mitigation only — the fix belongs in the vLLM NVFP4 prefill kernel.
+  // See ./nan-collapse-guard.ts.
+  registerNanCollapseGuard(pi);
 
   // Preserved-thinking state + notify
   //

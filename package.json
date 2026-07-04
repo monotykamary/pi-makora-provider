@@ -29,7 +29,7 @@
   "license": "MIT",
   "files": [
     "index.ts",
-    "death-loop-guard.ts",
+    "nan-collapse-guard.ts",
     "models.json",
     "custom-models.json",
     "patch.json",
