@@ -73,20 +73,21 @@ async function fetchModels() {
 
 // ─── DisplayName generation ────────────────────────────────────────────────
 
-const DISPLAY_NAME_MAP = {
+export const DISPLAY_NAME_MAP = Object.freeze({
+  'amd/Llama-3.3-70B-Instruct-FP8-KV': 'Llama 3.3 70B FP8',
   'deepseek-ai/DeepSeek-V4-Flash': 'DeepSeek V4 Flash',
   'deepseek-ai/DeepSeek-V4-Pro': 'DeepSeek V4 Pro',
-  'zai-org/GLM-5.1-FP8': 'GLM 5.1 FP8',
-  'zai-org/GLM-5.2-FP8': 'GLM 5.2 FP8',
-  'openai/gpt-oss-120b': 'GPT-OSS 120B',
-  'nvidia/Kimi-K2.6-NVFP4': 'Kimi K2.6 NVFP4',
-  'MiniMaxAI/MiniMax-M3-MXFP8': 'MiniMax M3 MXFP8',
+  'google/gemma-4-26B-A4B': 'Gemma 4 26B A4B',
   'meta-llama/Llama-3.3-70B-Instruct': 'Llama 3.3 70B Instruct',
+  'moonshotai/Kimi-K2.7-Code': 'Kimi K2.7 Code',
+  'openai/gpt-oss-120b': 'GPT-OSS 120B',
   'unsloth/Qwen3.6-27B-NVFP4': 'Qwen 3.6 27B NVFP4',
   'unsloth/Qwen3.6-35B-A3B-NVFP4': 'Qwen 3.6 35B A3B NVFP4',
-};
+  'zai-org/GLM-5.2-FP8': 'GLM 5.2 FP8',
+  'zai-org/GLM-5.2-NVFP4': 'GLM 5.2 NVFP4',
+});
 
-function generateDisplayName(id) {
+export function generateDisplayName(id) {
   if (DISPLAY_NAME_MAP[id]) return DISPLAY_NAME_MAP[id];
 
   // Fallback: strip org prefix, replace hyphens with spaces, title-case
@@ -298,4 +299,6 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}
