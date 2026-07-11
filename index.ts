@@ -47,9 +47,8 @@
  */
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { clampThinkingLevel } from "@earendil-works/pi-ai";
-import { streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
+import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };

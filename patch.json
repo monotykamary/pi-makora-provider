@@ -7,7 +7,8 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max"
+      "xhigh": "max",
+      "max": "max"
     },
     "compat": {
       "thinkingFormat": "deepseek",
@@ -22,7 +23,8 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max"
+      "xhigh": "max",
+      "max": "max"
     },
     "compat": {
       "thinkingFormat": "deepseek",
@@ -36,12 +38,15 @@
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high",
-      "off": "none"
+      "off": "none",
+      "max": "high"
     },
     "compat": {
       "supportsReasoningEffort": true,
       "chatTemplateKwargs": {
-        "preserve_thinking": { "$var": "thinking.enabled" }
+        "preserve_thinking": {
+          "$var": "thinking.enabled"
+        }
       }
     }
   },
@@ -51,12 +56,15 @@
     "thinkingLevelMap": {
       "minimal": "low",
       "xhigh": "high",
-      "off": "none"
+      "off": "none",
+      "max": "high"
     },
     "compat": {
       "supportsReasoningEffort": true,
       "chatTemplateKwargs": {
-        "preserve_thinking": { "$var": "thinking.enabled" }
+        "preserve_thinking": {
+          "$var": "thinking.enabled"
+        }
       }
     }
   },
@@ -69,14 +77,19 @@
     "notes": "on/off via namespaced `chat_template_kwargs.thinking` (toggled with thinking switch); `preserve_thinking` (toggled) for multi-turn continuity; onPayload aliases each assistant message's `reasoning` → `reasoning_content` (Kimi's template reads `reasoning_content` but pi-ai sends `reasoning`); returns `reasoning` field. `reasoning_effort` is not emitted (Kimi's template reads namespaced `thinking`, not `reasoning_effort`)",
     "thinkingLevelMap": {
       "minimal": "low",
-      "xhigh": "high"
+      "xhigh": "high",
+      "max": "high"
     },
     "compat": {
       "supportsReasoningEffort": false,
       "assistantReasoningField": "reasoning_content",
       "chatTemplateKwargs": {
-        "thinking": { "$var": "thinking.enabled" },
-        "preserve_thinking": { "$var": "thinking.enabled" }
+        "thinking": {
+          "$var": "thinking.enabled"
+        },
+        "preserve_thinking": {
+          "$var": "thinking.enabled"
+        }
       }
     }
   },
@@ -89,12 +102,16 @@
       "medium": null,
       "high": "high",
       "xhigh": "max",
-      "off": "none"
+      "off": "none",
+      "max": "max"
     },
     "compat": {
       "supportsReasoningEffort": true,
       "chatTemplateKwargs": {
-        "clear_thinking": { "$var": "thinking.enabled", "invert": true }
+        "clear_thinking": {
+          "$var": "thinking.enabled",
+          "invert": true
+        }
       }
     }
   },
@@ -107,12 +124,16 @@
       "medium": null,
       "high": "high",
       "xhigh": "max",
-      "off": "none"
+      "off": "none",
+      "max": "max"
     },
     "compat": {
       "supportsReasoningEffort": true,
       "chatTemplateKwargs": {
-        "clear_thinking": { "$var": "thinking.enabled", "invert": true }
+        "clear_thinking": {
+          "$var": "thinking.enabled",
+          "invert": true
+        }
       }
     }
   }
