@@ -7,7 +7,6 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max",
       "max": "max"
     },
     "compat": {
@@ -23,7 +22,6 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max",
       "max": "max"
     },
     "compat": {
@@ -37,7 +35,6 @@
     "notes": "off via top-level `reasoning_effort: \"none\"`; `preserve_thinking` (toggled with thinking switch) injected via onPayload for multi-turn continuity; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": "low",
-      "xhigh": "high",
       "off": "none",
       "max": "high"
     },
@@ -55,7 +52,6 @@
     "notes": "off via top-level `reasoning_effort: \"none\"`; `preserve_thinking` (toggled with thinking switch) injected via onPayload for multi-turn continuity; returns `reasoning` field",
     "thinkingLevelMap": {
       "minimal": "low",
-      "xhigh": "high",
       "off": "none",
       "max": "high"
     },
@@ -77,7 +73,6 @@
     "notes": "on/off via namespaced `chat_template_kwargs.thinking` (toggled with thinking switch); `preserve_thinking` (toggled) for multi-turn continuity; onPayload aliases each assistant message's `reasoning` → `reasoning_content` (Kimi's template reads `reasoning_content` but pi-ai sends `reasoning`); returns `reasoning` field. `reasoning_effort` is not emitted (Kimi's template reads namespaced `thinking`, not `reasoning_effort`)",
     "thinkingLevelMap": {
       "minimal": "low",
-      "xhigh": "high",
       "max": "high"
     },
     "compat": {
@@ -101,7 +96,6 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max",
       "off": "none",
       "max": "max"
     },
@@ -123,7 +117,6 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max",
       "off": "none",
       "max": "max"
     },

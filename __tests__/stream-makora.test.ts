@@ -27,7 +27,7 @@ const glm52 = {
   provider: "makora",
   reasoning: true,
   input: ["text"],
-  thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", xhigh: "max", off: "none" },
+  thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", off: "none", max: "max" },
   compat: {
     supportsReasoningEffort: true,
     chatTemplateKwargs: { clear_thinking: { $var: "thinking.enabled", invert: true } },
@@ -42,7 +42,7 @@ const qwen = {
   provider: "makora",
   reasoning: true,
   input: ["text"],
-  thinkingLevelMap: { minimal: "low", xhigh: "high", off: "none" },
+  thinkingLevelMap: { minimal: "low", off: "none", max: "high" },
   compat: {
     supportsReasoningEffort: true,
     chatTemplateKwargs: { preserve_thinking: { $var: "thinking.enabled" } },
@@ -57,7 +57,7 @@ const kimi = {
   provider: "makora",
   reasoning: true,
   input: ["text", "image"],
-  thinkingLevelMap: { minimal: "low", xhigh: "high" },
+  thinkingLevelMap: { minimal: "low", max: "high" },
   compat: {
     supportsReasoningEffort: false,
     assistantReasoningField: "reasoning_content",
@@ -77,7 +77,7 @@ const deepseek = {
   provider: "makora",
   reasoning: true,
   input: ["text"],
-  thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", xhigh: "max" },
+  thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", max: "max" },
   compat: { thinkingFormat: "deepseek", supportsReasoningEffort: true },
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 131072,
@@ -314,7 +314,7 @@ describe("resolveChatTemplateKwarg (pure helper)", () => {
   });
 
   it("$var thinking.effort resolves to the mapped effort when on", () => {
-    expect(resolveChatTemplateKwarg({ $var: "thinking.effort" }, glm52, true, "xhigh")).toBe("max");
+    expect(resolveChatTemplateKwarg({ $var: "thinking.effort" }, glm52, true, "max")).toBe("max");
   });
 
   it("$var thinking.effort resolves to thinkingLevelMap.off when off", () => {
@@ -350,7 +350,7 @@ describe("patch.json thinking-off + preserve config (behavioral E2E-verified)", 
       expect(map?.low).toBeNull();
       expect(map?.medium).toBeNull();
       expect(map?.high).toBe("high");
-      expect(map?.xhigh).toBe("max");
+      expect(map?.max).toBe("max");
     });
   }
 

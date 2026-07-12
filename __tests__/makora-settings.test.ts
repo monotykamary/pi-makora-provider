@@ -187,7 +187,7 @@ describe("streamMakora honors a pinned-boolean override (decoupled from thinking
     provider: "makora",
     reasoning: true,
     input: ["text"],
-    thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", xhigh: "max", off: "none" },
+    thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", off: "none", max: "max" },
     compat: {
       supportsReasoningEffort: true,
       chatTemplateKwargs: { clear_thinking: true },
@@ -215,7 +215,7 @@ describe("streamMakora honors a pinned-boolean override (decoupled from thinking
       provider: "makora",
       reasoning: true,
       input: ["text"],
-      thinkingLevelMap: { minimal: "low", xhigh: "high", off: "none" },
+      thinkingLevelMap: { minimal: "low", off: "none", max: "high" },
       compat: { supportsReasoningEffort: true, chatTemplateKwargs: { preserve_thinking: true } },
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 131072,
