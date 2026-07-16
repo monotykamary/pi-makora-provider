@@ -669,7 +669,36 @@ export default function (pi: ExtensionAPI) {
     description: "Configure Makora: preserved thinking per model",
     async handler(_args, ctx) {
       if (ctx.mode !== "tui") {
-        ctx.ui.notify("/makora-settings requires TUI mode.", "error");
+        if (!ctx.hasUI) {
+          ctx.ui.notify("/makora-settings requires a UI (TUI or GUI).", "error");
+          return;
+        }
+        const fresh = collectPreserveState();
+        if (fresh.length === 0) {
+          ctx.ui.notify("No models support preserved thinking.", "info");
+          return;
+        }
+        const modelPick = await ctx.ui.select(
+          "Makora preserved thinking \u2014 pick a model",
+          fresh.map((e) => `${e.name}: ${e.preserved ? "Preserve Thinking" : "Clear Thinking"}`),
+        );
+        if (modelPick === undefined) return;
+        const entry = fresh.find((e) => modelPick.startsWith(`${e.name}:`));
+        if (!entry) return;
+        const v = await ctx.ui.select(entry.name, ["Preserve Thinking", "Clear Thinking"]);
+        if (v === undefined) return;
+        const preservedOn = v === "Preserve Thinking";
+        const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
+        updateConfig((cfg) => {
+          const overrides = cfg.modelOverrides ?? (cfg.modelOverrides = {});
+          const ov = overrides[entry.id] ?? (overrides[entry.id] = {});
+          const compat = ov.compat ?? (ov.compat = {});
+          const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
+          kwargs[entry.flag] = flagValue;
+          return cfg;
+        });
+        pi.registerProvider(PROVIDER_ID, makeProviderConfig(builtModels()));
+        ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} \u2014 takes effect now.`, "info");
         return;
       }
       const { SettingsList, Container } = await import("@earendil-works/pi-tui");
