@@ -14,11 +14,10 @@
  * The ONLY change from the old blanket death-loop guard is a CLEARER repetition
  * signal: instead of four output pattern-matchers, this detects the NaN-argmax
  * onset fixed-point in the reasoning trace (the first ~64 chars = one short
- * unit repeated) scoped to the GLM-5.2 NVFP4/FP8 quants. The recovery is
- * UNCHANGED from the old guard: trim the degenerate message and resume
- * indefinitely via agent.prompt([]) (invisible-continue) with backoff until a
- * clean turn, user abort, or session change. We deliberately do NOT trim valid
- * context — removing the user's session to "fix" the recurrence would destroy
+ * unit repeated) scoped to the GLM-5.2 NVFP4/FP8 quants. Recovery trims the
+ * degenerate message and resumes through a hidden AgentSession follow-up with
+ * backoff until a clean turn, user abort, or session change. We deliberately do
+ * NOT trim valid context — removing the user's session to "fix" the recurrence would destroy
  * the session. (The recurrence is the engine bug re-triggering as context
  * grows; the guard catches each collapse early at onset instead of after a
  * 15k-token `!` run.) An optional logprobs canary (MAKORA_NAN_CANARY) flags NaN
@@ -73,6 +72,13 @@ export const DEGENERATE_STUB_TEXT =
 const BACKOFF_BASE_MS = 2000;
 const BACKOFF_MAX_MS = 60_000;
 const BACKOFF_MULTIPLIER = 2;
+export const NAN_RECOVERY_CUSTOM_TYPE = "pi-makora-provider:nan-recovery";
+
+export function isNanRecoveryMarker(message: unknown): boolean {
+  if (!message || typeof message !== "object") return false;
+  const candidate = message as { role?: unknown; customType?: unknown };
+  return candidate.role === "custom" && candidate.customType === NAN_RECOVERY_CUSTOM_TYPE;
+}
 
 // ---- Types (loose — event shapes are complex) ------------------------------
 
@@ -87,7 +93,6 @@ interface GuardedAgent {
   state: { messages: GuardedMessage[] };
   abort(): void;
   waitForIdle(): Promise<void>;
-  prompt(input: unknown[] | string): Promise<void>;
 }
 
 // ---- Module state (one active session at a time, like the old guard) -------
@@ -97,6 +102,7 @@ let _notifyFn: ((msg: string, level: "info" | "warning" | "error") => void) | nu
 let _weAborted = false;   // we triggered the abort (vs user Esc)
 let _userAborted = false; // user aborted (Esc) — exit recovery
 let _recovering = false;  // recovery mutex
+let _requestResume: (() => void) | null = null;
 let _tripped = false;     // detection fired this turn
 let _sessionGeneration = 0; // bump on session_start to cancel stale loops
 
@@ -183,7 +189,7 @@ export function isCollapseMessage(msg: GuardedMessage): boolean {
 }
 
 /** Recovery trim: drop ONLY the trailing aborted/collapse assistant message so
- *  the resumed prompt([]) sends a clean continuation context ending at the
+ *  the resumed hidden turn sends a clean continuation context ending at the
  *  prior user/toolResult. Matches the old guard — we do NOT trim valid context
  *  (removing the user's session would destroy it). The degenerate turn itself
  *  is the only thing removed. */
@@ -249,9 +255,12 @@ async function triggerRecovery(): Promise<void> {
       _weAborted = false;
       _tripped = false;
       try {
-        await _agent.prompt([]);
+        if (!_requestResume) return;
+        _requestResume();
+        await Promise.resolve();
+        await _agent.waitForIdle();
       } catch {
-        return; // "Agent is already processing" or transient — bail.
+        return;
       }
       if (_userAborted || _sessionGeneration !== myGeneration) return;
       if (_weAborted) { // collapsed again — trim the degenerate turn and loop
@@ -325,6 +334,17 @@ export async function nanCanary(
 // ---- Registration ----------------------------------------------------------
 
 export function registerNanCollapseGuard(pi: ExtensionAPI): void {
+  _requestResume = () => {
+    pi.sendMessage(
+      {
+        customType: NAN_RECOVERY_CUSTOM_TYPE,
+        content: [],
+        display: false,
+        details: undefined,
+      },
+      { triggerTurn: true, deliverAs: "followUp" },
+    );
+  };
   // Capture the live Agent by chaining Agent.prototype.subscribe (fires on
   // every fresh session + resume). Chain any prior patch (pi-invisible-continue,
   // pi-retry) so all coexist.
@@ -346,9 +366,16 @@ export function registerNanCollapseGuard(pi: ExtensionAPI): void {
     _lastPromptTokens = 0;
   });
 
-  // before_agent_start fires only for user prompts (not recovery's prompt([])),
+  // before_agent_start fires only for user prompts, not recovery custom turns,
   // so resets bound detection to the current user turn.
   pi.on("before_agent_start", () => {
+    // A real prompt supersedes a recovery waiting in backoff. This event does
+    // not fire for the hidden custom recovery turn, so it closes the startup
+    // race without cancelling our own retries.
+    if (_recovering) {
+      _sessionGeneration++;
+      _recovering = false;
+    }
     _tripped = false;
     _weAborted = false;
     _userAborted = false;
@@ -426,9 +453,9 @@ export function registerNanCollapseGuard(pi: ExtensionAPI): void {
 
   // Before each LLM call: strip any collapse/stub from the trailing context so
   // the model never re-sees toxic output, and refresh the prompt-token estimate
-  // used to label the recovery notify. (The recovery's prompt([]) path is
-  // covered by the state.messages trim; this covers user-prompt turns and
-  // resumes.)
+  // used to label the recovery notify. The recovery state trim handles the
+  // aborted turn; this hook also removes the hidden resume marker and covers
+  // ordinary user-prompt turns.
   pi.on("context", (event: any) => {
     const messages = event.messages;
     if (messages && messages.length > 0) {
@@ -436,6 +463,10 @@ export function registerNanCollapseGuard(pi: ExtensionAPI): void {
       const scanFrom = Math.max(0, messages.length - 32);
       let changed = false;
       const filtered = messages.filter((m, i) => {
+        if (isNanRecoveryMarker(m)) {
+          changed = true;
+          return false;
+        }
         if (i < scanFrom || m.role !== "assistant") return true;
         const text = extractText(m.content);
         if (text === DEGENERATE_STUB_TEXT || (isCollapseMessage(m) && text.length >= ONSET_MIN_CHARS)) {
@@ -449,5 +480,12 @@ export function registerNanCollapseGuard(pi: ExtensionAPI): void {
       _lastPromptTokens = 0;
     }
     return undefined;
+  });
+
+  pi.on("session_shutdown", () => {
+    _sessionGeneration++;
+    _recovering = false;
+    _requestResume = null;
+    _userAborted = true;
   });
 }

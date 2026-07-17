@@ -11,6 +11,8 @@ import {
   extractText,
   isOnsetCollapse as collapse,
   DEGENERATE_STUB_TEXT,
+  NAN_RECOVERY_CUSTOM_TYPE,
+  isNanRecoveryMarker,
 } from "../nan-collapse-guard.js";
 
 describe("isOnsetCollapse — NaN-argmax fixed point at reasoning onset", () => {
@@ -88,5 +90,13 @@ describe("extractText", () => {
   it("handles null/empty", () => {
     expect(extractText(null)).toBe("");
     expect(extractText([])).toBe("");
+  });
+});
+
+describe("native recovery marker", () => {
+  it("recognizes only the provider-invisible custom marker", () => {
+    expect(isNanRecoveryMarker({ role: "custom", customType: NAN_RECOVERY_CUSTOM_TYPE })).toBe(true);
+    expect(isNanRecoveryMarker({ role: "user", customType: NAN_RECOVERY_CUSTOM_TYPE })).toBe(false);
+    expect(isNanRecoveryMarker({ role: "custom", customType: "other" })).toBe(false);
   });
 });

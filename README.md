@@ -212,9 +212,9 @@ This extension ships a guard (`nan-collapse-guard.ts`) scoped to those quants.
 It detects the collapse as a **NaN-argmax onset fixed point** — the first ~64
 chars of the reasoning trace being one short unit (`!`, `{},`, `();`, …)
 repeated — instead of the old blanket repetition pattern-matcher, and recovers
-exactly as the old guard did: trim the degenerate turn and resume the agentic
-loop invisibly via `agent.prompt([])` (no new user message) with backoff,
-retrying until a clean turn, user abort, or session change. **It does not trim
+by trimming the degenerate turn and queueing a hidden AgentSession follow-up
+with backoff. The marker is removed before provider serialization, and recovery
+retries until a clean turn, user abort, or session change. **It does not trim
 valid context** — only the degenerate turn is removed, so the user's session is
 preserved. The recurrence is the engine bug re-triggering as context grows;
 the guard catches each collapse early (at onset, ~4 tokens) instead of after
