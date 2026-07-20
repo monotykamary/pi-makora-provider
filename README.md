@@ -153,25 +153,14 @@ Do **not** edit `models.json` directly — it is auto-generated from the API. To
 
 ## Preserved Thinking
 
-Reasoning models on Makora keep their chain-of-thought across turns by default:
-each turn's `reasoning` trace is rendered into the next prompt so the model
-recalls its prior deduction (better multi-turn recall for coding). By default
-this **follows the thinking switch** — preserve is on when thinking is on, and
-cleared when thinking is off — via the `{ "$var": "thinking.enabled" }` schema
-in `patch.json`.
+Reasoning models on Makora keep their chain-of-thought across turns by default: each turn's `reasoning` trace is rendered into the next prompt so the model recalls its prior deduction (better multi-turn recall for coding). By default this **follows the thinking switch** — preserve is on when thinking is on, and cleared when thinking is off — via the `{ "$var": "thinking.enabled" }` schema in `patch.json`.
 
-Use `/makora-settings` to pin preserved thinking **on or off per model**,
-independently of the thinking switch:
+Use `/makora-settings` to pin preserved thinking **on or off per model**, independently of the thinking switch:
 
-- **Preserve Thinking** — keep every turn's reasoning trace in the next prompt.
-  Suited for coding, but can overthink on prose and costs tokens.
-- **Clear Thinking** — let the template drop older reasoning each turn. Lighter
-  and often better for prose, but can hurt multi-turn recall.
+- **Preserve Thinking** — keep every turn's reasoning trace in the next prompt. Suited for coding, but can overthink on prose and costs tokens.
+- **Clear Thinking** — let the template drop older reasoning each turn. Lighter and often better for prose, but can hurt multi-turn recall.
 
-Selections persist to `~/.pi/agent/extensions/makora.json` (`modelOverrides`,
-deep-merged on top of `patch.json`) and take effect immediately — the provider
-is re-registered on toggle, and a notification on model switch reports the
-current state.
+Selections persist to `~/.pi/agent/extensions/makora.json` (`modelOverrides`, deep-merged on top of `patch.json`) and take effect immediately — the provider is re-registered on toggle, and a notification on model switch reports the current state.
 
 | Model | Flag |
 |---|---|
@@ -200,26 +189,8 @@ You can also hand-edit `makora.json` directly:
 
 ## NaN-Collapse Guard
 
-The GLM-5.2 NVFP4/FP8 quants have an engine-side bug: at long context (from
-~9k prompt tokens) the vLLM NVFP4 MoE prefill produces NaN logits, so the
-reasoning trace collapses into a single token repeated indefinitely (`!!!!…`
-here, `{},{},{},…` on other deployments), `finish_reason: length`. Requesting
-logprobs surfaces the root cause as HTTP 400 `Out of range float values are not
-JSON compliant: nan`. This is a vLLM numerical bug (matches vLLM #31856 /
-#47042), not a model or prompt issue.
+The GLM-5.2 NVFP4/FP8 quants have an engine-side bug: at long context (from ~9k prompt tokens) the vLLM NVFP4 MoE prefill produces NaN logits, so the reasoning trace collapses into a single token repeated indefinitely (`!!!!…` here, `{},{},{},…` on other deployments), `finish_reason: length`. Requesting logprobs surfaces the root cause as HTTP 400 `Out of range float values are not JSON compliant: nan`. This is a vLLM numerical bug (matches vLLM #31856 / #47042), not a model or prompt issue.
 
-This extension ships a guard (`nan-collapse-guard.ts`) scoped to those quants.
-It detects the collapse as a **NaN-argmax onset fixed point** — the first ~64
-chars of the reasoning trace being one short unit (`!`, `{},`, `();`, …)
-repeated — instead of the old blanket repetition pattern-matcher, and recovers
-by trimming the degenerate turn and queueing a hidden AgentSession follow-up
-with backoff. The marker is removed before provider serialization, and recovery
-retries until a clean turn, user abort, or session change. **It does not trim
-valid context** — only the degenerate turn is removed, so the user's session is
-preserved. The recurrence is the engine bug re-triggering as context grows;
-the guard catches each collapse early (at onset, ~4 tokens) instead of after
-a 15k-token `!` run.
+This extension ships a guard (`nan-collapse-guard.ts`) scoped to those quants. It detects the collapse as a **NaN-argmax onset fixed point** — the first ~64 chars of the reasoning trace being one short unit (`!`, `{},`, `();`, …) repeated — instead of the old blanket repetition pattern-matcher, and recovers by trimming the degenerate turn and queueing a hidden AgentSession follow-up with backoff. The marker is removed before provider serialization, and recovery retries until a clean turn, user abort, or session change. **It does not trim valid context** — only the degenerate turn is removed, so the user's session is preserved. The recurrence is the engine bug re-triggering as context grows; the guard catches each collapse early (at onset, ~4 tokens) instead of after a 15k-token `!` run.
 
-Set `MAKORA_NAN_CANARY=1` to enable an optional preflight canary that probes
-the payload with `logprobs:true` and logs a `nan` flag for the engine team
-(off by default; adds latency on long contexts).
+Set `MAKORA_NAN_CANARY=1` to enable an optional preflight canary that probes the payload with `logprobs:true` and logs a `nan` flag for the engine team (off by default; adds latency on long contexts).
