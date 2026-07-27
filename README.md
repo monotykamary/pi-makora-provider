@@ -23,12 +23,8 @@ _DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 for [pi](https://github.com/eare
 | Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | No |  |
 | GLM 5.2 FP8 | `zai-org/GLM-5.2-FP8` | Yes | off via top-level `reasoning_effort: "none"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field |
 | GLM 5.2 NVFP4 | `zai-org/GLM-5.2-NVFP4` | Yes | off via top-level `reasoning_effort: "none"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field |
-| GPT-OSS 120B | `openai/gpt-oss-120b` | No |  |
 | Kimi K2.7 Code | `moonshotai/Kimi-K2.7-Code` | Yes | on/off via namespaced `chat_template_kwargs.thinking` (toggled with thinking switch); `preserve_thinking` (toggled) for multi-turn continuity; onPayload aliases each assistant message's `reasoning` → `reasoning_content` (Kimi's template reads `reasoning_content` but pi-ai sends `reasoning`); returns `reasoning` field. `reasoning_effort` is not emitted (Kimi's template reads namespaced `thinking`, not `reasoning_effort`) |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
-| Llama 3.3 70B Instruct | `meta-llama/Llama-3.3-70B-Instruct` | No |  |
-| Qwen 3.6 27B NVFP4 | `unsloth/Qwen3.6-27B-NVFP4` | Yes | off via top-level `reasoning_effort: "none"`; `preserve_thinking` (toggled with thinking switch) injected via onPayload for multi-turn continuity; returns `reasoning` field |
-| Qwen 3.6 35B A3B NVFP4 | `unsloth/Qwen3.6-35B-A3B-NVFP4` | Yes | off via top-level `reasoning_effort: "none"`; `preserve_thinking` (toggled with thinking switch) injected via onPayload for multi-turn continuity; returns `reasoning` field |
 <!-- MODELS_TABLE_END -->
 
 ## Installation
