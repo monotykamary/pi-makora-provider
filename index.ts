@@ -52,6 +52,7 @@ import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };
+import deprecatedData from "./deprecated-models.json" with { type: "json" };
 import { registerNanCollapseGuard, nanCanary, canaryEnabled, isGuardedModel } from "./nan-collapse-guard.js";
 import fs from "fs";
 import path from "path";
@@ -549,6 +550,35 @@ export function streamMakora(
   });
 }
 
+// Grace period for delisted models. When the provider API stops listing a
+// model, update-models.js moves its last-known definition into
+// deprecated-models.json (stamped with deprecatedAt) instead of dropping it.
+// For 14 days the model keeps working here so in-flight sessions and saved
+// model settings do not break; afterwards it is evicted permanently.
+const DEPRECATED_MODEL_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Grace-period deprecated models with deprecation metadata stripped.
+function activeDeprecatedModels(): JsonModel[] {
+  const now = Date.now();
+  const result: JsonModel[] = [];
+  for (const entry of Object.values(deprecatedData as Record<string, JsonModel & { deprecatedAt?: string }>)) {
+    if (!entry?.id) continue;
+    const removedAt = Date.parse(entry.deprecatedAt ?? "");
+    if (Number.isNaN(removedAt) || now - removedAt > DEPRECATED_MODEL_TTL_MS) continue;
+    const model = { ...entry } as JsonModel & { deprecatedAt?: string };
+    delete model.deprecatedAt;
+    result.push(model);
+  }
+  return result;
+}
+
+// Append grace-period deprecated models the list does not already have (live data wins).
+function withDeprecated(models: JsonModel[]): JsonModel[] {
+  const seen = new Set(models.map((m) => m.id));
+  const extras = activeDeprecatedModels().filter((m) => !seen.has(m.id));
+  return extras.length > 0 ? [...models, ...extras] : models;
+}
+
 // Extension Entry Point
 
 const PROVIDER_ID = "makora";
@@ -564,7 +594,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function builtModels(): JsonModel[] {
-    return buildModels(embeddedModels, customModels, patches, activeOverrides());
+    return withDeprecated(buildModels(embeddedModels, customModels, patches, activeOverrides()));
   }
 
   // apiKey resolution order: auth.json ("makora" key) → MAKORA_OPTIMIZE_TOKEN env var.
