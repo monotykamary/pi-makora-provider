@@ -42,8 +42,8 @@
     }
   },
   {
-    "id": "moonshotai/Kimi-K2.7-Code",
-    "name": "Kimi K2.7 Code",
+    "id": "google/gemma-4-26B-A4B",
+    "name": "Gemma 4 26B A4B",
     "reasoning": false,
     "input": [
       "text"
