@@ -48,7 +48,7 @@
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
-import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, openAICompletionsApi } from "@earendil-works/pi-ai/compat";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };
@@ -397,9 +397,10 @@ function buildModels(
 //     1.00 with it on, 0.00 off) — it gates whether the prior reasoning trace
 //     is rendered into the next turn's prompt.
 //
-// So this provider registers a `streamSimple` wrapper that delegates to pi-ai's
-// `streamOpenAICompletions` (keeping all its streaming/tool-calling/caching) and
-// uses pi-ai's `onPayload` hook — which runs AFTER `buildParams` — to inject the
+// So this provider registers a `streamSimple` wrapper that delegates through
+// pi-ai's OpenAI completions `streamSimple` (keeping model max-token defaulting,
+// context clamping, streaming/tool-calling/caching) and uses pi-ai's `onPayload`
+// hook — which runs AFTER `buildParams` — to inject the
 // `chat_template_kwargs` that the chosen `thinkingFormat` branch can't reach.
 // `buildParams` still owns `reasoning_effort` (on → mapped effort; off → "none");
 // `onPayload` owns `chat_template_kwargs` (preserve_thinking + Kimi's `thinking`).
@@ -437,8 +438,8 @@ export function resolveChatTemplateKwarg(
   return undefined;
 }
 
-/** Custom streamSimple: delegate to pi-ai's OpenAI completions streamer and
- *  inject per-model `chat_template_kwargs` (preserve_thinking / clear_thinking +
+/** Custom streamSimple: delegate through pi-ai's OpenAI completions simple
+ *  wrapper and inject per-model `chat_template_kwargs` (preserve_thinking / clear_thinking +
  *  Kimi's thinking toggle) via the onPayload hook, and alias each assistant
  *  message's reasoning field when a template reads a different field name.
  *  Models with neither chatTemplateKwargs nor assistantReasoningField (DeepSeek,
@@ -456,17 +457,16 @@ export function streamMakora(
     );
   }
 
-  // pi-ai's streamer reads `model.api` to pick the OpenAI completions client. Our
-  // provider registers under `api: "makora"` (so pi routes to this streamSimple);
-  // override to `openai-completions` here so streamOpenAICompletions uses the
-  // standard client. Per-model baseUrl overrides (per-slug endpoints) are kept.
+  // pi-ai's simple wrapper reads `model.api` to pick the OpenAI completions client.
+  // Our provider registers under `api: "makora"` (so pi routes here); override to
+  // `openai-completions` while preserving per-model baseUrl overrides. Delegating
+  // through streamSimple also defaults model.maxTokens and clamps it to remaining
+  // context before the raw streamer serializes max_completion_tokens.
   const makoraModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
 
-  // pi hands streamSimple providers the raw thinking selection as
-  // `options.reasoning` (a ThinkingLevel). The raw streamOpenAICompletions only
-  // reads `options.reasoningEffort`, so replicate the clamp+convert pi-ai's own
-  // streamSimple wrapper does — otherwise reasoning_effort never reaches the
-  // body and thinking levels silently do nothing. "off" → undefined (off).
+  // Clamp once here for payload-dependent thinking flags, then pass the effective
+  // selection through pi-ai's simple wrapper. The wrapper performs the same clamp
+  // before converting the level to reasoningEffort for the raw request.
   const clampedReasoning = options?.reasoning
     ? clampThinkingLevel(makoraModel, options.reasoning)
     : undefined;
@@ -545,9 +545,9 @@ export function streamMakora(
         }
       : undefined;
 
-  return streamOpenAICompletions(makoraModel, context, {
+  return openAICompletionsApi().streamSimple(makoraModel, context, {
     ...streamOptions,
-    reasoningEffort,
+    reasoning: clampedReasoning,
     apiKey,
     ...(onPayload ? { onPayload } : {}),
   });

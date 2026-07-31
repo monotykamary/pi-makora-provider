@@ -92,9 +92,11 @@ beforeEach(() => {
 });
 
 describe("streamMakora delegation", () => {
-  it("delegates to streamOpenAICompletions with api overridden to openai-completions", () => {
+  it("delegates through pi-ai's simple wrapper so model output limits are applied", () => {
     streamMakora(glm52, ctx, { apiKey: "sk-test", reasoning: "high" } as any);
     expect(__streamCalls).toHaveLength(1);
+    expect(__streamCalls[0].entrypoint).toBe("simple");
+    expect(__streamCalls[0].options.maxTokens).toBe(glm52.maxTokens);
     expect(__streamCalls[0].model.api).toBe("openai-completions");
     expect(__streamCalls[0].model.id).toBe("zai-org/GLM-5.2-FP8");
   });
