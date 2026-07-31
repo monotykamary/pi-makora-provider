@@ -7,8 +7,8 @@
  * - models.json: Provider model definitions (auto-generated from API)
  * - README.md: Model table between <!-- MODELS_TABLE_START --> / <!-- MODELS_TABLE_END -->
  *
- * The Makora /v1/models API returns model id and max_model_len (context window),
- * but does NOT provide: pricing, max output tokens, reasoning mode, compat,
+ * The Makora /v1/models API returns model id, max_model_len (context window),
+ * and max_output_length. It does NOT provide pricing, reasoning mode, compat,
  * thinkingLevelMap, or notes. Those come from patch.json.
  *
  * Data flow:
@@ -102,6 +102,7 @@ function transformApiModel(apiModel) {
   const id = apiModel.id;
   const name = generateDisplayName(id);
   const contextWindow = apiModel.max_model_len || 0;
+  const maxTokens = apiModel.max_output_length || 0;
 
   return {
     id,
@@ -115,7 +116,7 @@ function transformApiModel(apiModel) {
       cacheWrite: 0,
     },
     contextWindow,
-    maxTokens: 0,
+    maxTokens,
     compat: {
       supportsDeveloperRole: false,
       supportsStore: false,
