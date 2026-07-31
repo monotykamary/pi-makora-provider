@@ -10,6 +10,7 @@ export interface SimpleStreamOptions {
   apiKey?: string;
   reasoning?: string;
   reasoningEffort?: string;
+  maxTokens?: number;
   onPayload?: (params: any, model: any) => any | Promise<any>;
 }
 
@@ -17,7 +18,12 @@ export interface AssistantMessageEventStream {
   end: (result?: any) => void;
 }
 
-export const __streamCalls: Array<{ model: any; context: any; options: any }> = [];
+export const __streamCalls: Array<{
+  entrypoint: "raw" | "simple";
+  model: any;
+  context: any;
+  options: any;
+}> = [];
 
 export function __resetStreamCalls(): void {
   __streamCalls.length = 0;
@@ -38,8 +44,30 @@ export function streamOpenAICompletions(
   context: any,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  __streamCalls.push({ model, context, options });
+  __streamCalls.push({ entrypoint: "raw", model, context, options });
   return {
     end() {},
+  };
+}
+
+export function openAICompletionsApi() {
+  return {
+    streamSimple(model: any, context: any, options?: SimpleStreamOptions): AssistantMessageEventStream {
+      const clampedReasoning = options?.reasoning
+        ? clampThinkingLevel(model, options.reasoning)
+        : undefined;
+      const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+      const maxTokens = Math.min(options?.maxTokens ?? model.maxTokens, model.contextWindow);
+      const { reasoning: _reasoning, ...streamOptions } = options ?? {};
+      __streamCalls.push({
+        entrypoint: "simple",
+        model,
+        context,
+        options: { ...streamOptions, maxTokens, reasoningEffort },
+      });
+      return {
+        end() {},
+      };
+    },
   };
 }
