@@ -327,7 +327,10 @@ function buildModels(
 ): JsonModel[] {
   const modelMap = new Map<string, JsonModel>();
 
-  for (const model of base) {
+  // Seed with the base list plus grace-period deprecated models so patch.json
+  // entries apply to deprecated models exactly as while the model was live
+  // (withDeprecated keeps live data on id conflicts).
+  for (const model of withDeprecated(base)) {
     modelMap.set(model.id, model);
   }
 
@@ -594,7 +597,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function builtModels(): JsonModel[] {
-    return withDeprecated(buildModels(embeddedModels, customModels, patches, activeOverrides()));
+    return buildModels(embeddedModels, customModels, patches, activeOverrides());
   }
 
   // apiKey resolution order: auth.json ("makora" key) → MAKORA_OPTIMIZE_TOKEN env var.
