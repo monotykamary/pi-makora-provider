@@ -4,7 +4,7 @@
 
 **Open-weight models through [Makora](https://inference.makora.com)**
 
-_DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 for [pi](https://github.com/earendil-works/pi-coding-agent)._
+_DeepSeek V4, Gemma 4, GLM 5.2, and graduated Qwen/Kimi regression profiles for [pi](https://github.com/earendil-works/pi-coding-agent)._
 
 [![pi extension](https://img.shields.io/badge/pi-extension-blueviolet)](https://github.com/earendil-works/pi-coding-agent)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
@@ -20,7 +20,7 @@ _DeepSeek V4, Kimi K2.7 Code, GLM 5.2, Qwen 3.6 for [pi](https://github.com/eare
 |-------|----|-----------|-------|
 | DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | returns `reasoning` field |
 | DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | returns `reasoning` field |
-| Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | No |  |
+| Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | Yes | thinking controlled with vLLM `chat_template_kwargs.enable_thinking`; effort levels are not published |
 | GLM 5.2 FP8 | `zai-org/GLM-5.2-FP8` | Yes | off via top-level `reasoning_effort: "none"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field |
 | GLM 5.2 NVFP4 | `zai-org/GLM-5.2-NVFP4` | Yes | off via top-level `reasoning_effort: "none"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
@@ -160,8 +160,9 @@ Selections persist to `~/.pi/agent/extensions/makora.json` (`modelOverrides`, de
 | Model | Flag |
 |---|---|
 | GLM 5.2 FP8 / NVFP4 | `clear_thinking` (false = preserve) |
-| Qwen 3.6 27B / 35B A3B | `preserve_thinking` |
-| Kimi K2.7 Code | `preserve_thinking` |
+| Gemma 4 26B A4B | `enable_thinking` follows the thinking switch |
+| Qwen 3.6 27B / 35B A3B (deprecated grace layer) | `preserve_thinking` |
+| Kimi K2.7 Code (deprecated grace layer) | namespaced `thinking` + `preserve_thinking` |
 
 You can also hand-edit `makora.json` directly:
 
@@ -169,6 +170,7 @@ You can also hand-edit `makora.json` directly:
 {
   "modelOverrides": {
     "zai-org/GLM-5.2-FP8": { "compat": { "chatTemplateKwargs": { "clear_thinking": true } } },
+    "google/gemma-4-26B-A4B": { "compat": { "chatTemplateKwargs": { "enable_thinking": false } } },
     "unsloth/Qwen3.6-27B-NVFP4": { "compat": { "chatTemplateKwargs": { "preserve_thinking": false } } }
   }
 }

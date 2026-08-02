@@ -12,7 +12,8 @@
     "compat": {
       "thinkingFormat": "deepseek",
       "supportsReasoningEffort": true
-    }
+    },
+    "maxTokens": 384000
   },
   "deepseek-ai/DeepSeek-V4-Pro": {
     "reasoning": true,
@@ -28,6 +29,73 @@
       "thinkingFormat": "deepseek",
       "supportsReasoningEffort": true,
       "requiresReasoningContentOnAssistantMessages": true
+    },
+    "maxTokens": 384000
+  },
+  "zai-org/GLM-5.2-FP8": {
+    "reasoning": true,
+    "notes": "off via top-level `reasoning_effort: \"none\"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field",
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "off": "none",
+      "max": "max"
+    },
+    "compat": {
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "clear_thinking": {
+          "$var": "thinking.enabled",
+          "invert": true
+        }
+      }
+    },
+    "maxTokens": 131072
+  },
+  "zai-org/GLM-5.2-NVFP4": {
+    "reasoning": true,
+    "notes": "off via top-level `reasoning_effort: \"none\"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field",
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "off": "none",
+      "max": "max"
+    },
+    "compat": {
+      "supportsReasoningEffort": true,
+      "chatTemplateKwargs": {
+        "clear_thinking": {
+          "$var": "thinking.enabled",
+          "invert": true
+        }
+      }
+    },
+    "maxTokens": 131072
+  },
+  "google/gemma-4-26B-A4B": {
+    "reasoning": true,
+    "maxTokens": 32768,
+    "notes": "thinking controlled with vLLM `chat_template_kwargs.enable_thinking`; effort levels are not published",
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": null
+    },
+    "compat": {
+      "supportsReasoningEffort": false,
+      "chatTemplateKwargs": {
+        "enable_thinking": {
+          "$var": "thinking.enabled"
+        }
+      }
     }
   },
   "unsloth/Qwen3.6-27B-NVFP4": {
@@ -45,7 +113,8 @@
           "$var": "thinking.enabled"
         }
       }
-    }
+    },
+    "maxTokens": 65536
   },
   "unsloth/Qwen3.6-35B-A3B-NVFP4": {
     "reasoning": true,
@@ -62,7 +131,8 @@
           "$var": "thinking.enabled"
         }
       }
-    }
+    },
+    "maxTokens": 65536
   },
   "moonshotai/Kimi-K2.7-Code": {
     "reasoning": true,
@@ -86,48 +156,7 @@
           "$var": "thinking.enabled"
         }
       }
-    }
-  },
-  "zai-org/GLM-5.2-FP8": {
-    "reasoning": true,
-    "notes": "off via top-level `reasoning_effort: \"none\"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field",
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "off": "none",
-      "max": "max"
     },
-    "compat": {
-      "supportsReasoningEffort": true,
-      "chatTemplateKwargs": {
-        "clear_thinking": {
-          "$var": "thinking.enabled",
-          "invert": true
-        }
-      }
-    }
-  },
-  "zai-org/GLM-5.2-NVFP4": {
-    "reasoning": true,
-    "notes": "off via top-level `reasoning_effort: \"none\"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field",
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "off": "none",
-      "max": "max"
-    },
-    "compat": {
-      "supportsReasoningEffort": true,
-      "chatTemplateKwargs": {
-        "clear_thinking": {
-          "$var": "thinking.enabled",
-          "invert": true
-        }
-      }
-    }
+    "maxTokens": 262144
   }
 }
