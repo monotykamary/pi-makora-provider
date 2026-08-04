@@ -18,14 +18,118 @@
  *
  * Merge order for README: models.json → apply patch.json → merge custom-models.json
  *
- * Requires MAKORA_OPTIMIZE_TOKEN environment variable.
+ * API key: the stored `makora` credential in ~/.pi/agent/auth.json wins, then
+ * the MAKORA_OPTIMIZE_TOKEN environment variable. The script refuses to run without one.
  */
 
 import fs from 'fs';
+import os from 'os';
+import { execSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// pi's agent directory: PI_CODING_AGENT_DIR (with ~ expansion) or ~/.pi/agent.
+function piAgentDir() {
+  const envDir = process.env.PI_CODING_AGENT_DIR;
+  if (envDir) {
+    return envDir.startsWith('~/') || envDir === '~'
+      ? path.join(os.homedir(), envDir.slice(1))
+      : envDir;
+  }
+  return path.join(os.homedir(), '.pi', 'agent');
+}
+
+const AUTH_JSON_PATH = path.join(piAgentDir(), 'auth.json');
+
+/**
+ * Resolve a configured value using pi's semantics (resolve-config-value.ts in
+ * pi-mono): "!command" runs via the shell (10s timeout) and uses trimmed
+ * stdout; "$VAR" / "${VAR}" interpolate environment variables ("$$" escapes a
+ * literal "$", "$!" a literal "!"); anything else is a literal. Returns
+ * undefined when a referenced env var is unset or a command fails.
+ */
+function resolveConfigValue(config, env) {
+  if (typeof config !== 'string' || config.length === 0) return undefined;
+  if (config.startsWith('!')) {
+    try {
+      const out = execSync(config.slice(1), {
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      return out.trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  let resolved = '';
+  let index = 0;
+  while (index < config.length) {
+    const dollar = config.indexOf('$', index);
+    if (dollar < 0) {
+      resolved += config.slice(index);
+      break;
+    }
+    resolved += config.slice(index, dollar);
+    const next = config[dollar + 1];
+    let name;
+    if (next === '$' || next === '!') {
+      resolved += next;
+      index = dollar + 2;
+      continue;
+    } else if (next === '{') {
+      const end = config.indexOf('}', dollar + 2);
+      if (end < 0) {
+        resolved += '$';
+        index = dollar + 1;
+        continue;
+      }
+      const inner = config.slice(dollar + 2, end);
+      if (!ENV_NAME_RE.test(inner)) {
+        resolved += config.slice(dollar, end + 1);
+        index = end + 1;
+        continue;
+      }
+      name = inner;
+      index = end + 1;
+    } else {
+      const match = config.slice(dollar + 1).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+      if (!match) {
+        resolved += '$';
+        index = dollar + 1;
+        continue;
+      }
+      name = match[0];
+      index = dollar + 1 + name.length;
+    }
+    const value = (env && env[name]) || process.env[name] || undefined;
+    if (value === undefined) return undefined;
+    resolved += value;
+  }
+  return resolved;
+}
+
+/**
+ * The API key, resolved the way pi itself resolves it for this provider: the
+ * stored `makora` credential in ~/.pi/agent/auth.json wins, then
+ * the MAKORA_OPTIMIZE_TOKEN environment variable.
+ */
+function resolveApiKey() {
+  try {
+    const auth = JSON.parse(fs.readFileSync(AUTH_JSON_PATH, 'utf8'));
+    const credential = auth?.makora;
+    if (credential && credential.type === 'api_key' && typeof credential.key === 'string') {
+      const key = resolveConfigValue(credential.key, credential.env);
+      if (key) return key;
+    }
+  } catch {
+    // Missing or unparseable auth.json: fall through to the env var.
+  }
+  return process.env.MAKORA_OPTIMIZE_TOKEN || undefined;
+}
 
 const MODELS_API_URL = 'https://inference.makora.com/v1/models';
 const MODELS_JSON_PATH = path.join(__dirname, '..', 'models.json');
@@ -51,9 +155,9 @@ function saveJson(filePath, data) {
 // ─── API fetch ───────────────────────────────────────────────────────────────
 
 async function fetchModels() {
-  const apiKey = process.env.MAKORA_OPTIMIZE_TOKEN;
+  const apiKey = resolveApiKey();
   if (!apiKey) {
-    throw new Error('MAKORA_OPTIMIZE_TOKEN environment variable is required');
+    throw new Error('No API key found: no `makora` credential resolved from ' + AUTH_JSON_PATH + ' and MAKORA_OPTIMIZE_TOKEN is not set');
   }
 
   console.log(`Fetching models from ${MODELS_API_URL}...`);
