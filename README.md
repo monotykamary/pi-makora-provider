@@ -19,7 +19,6 @@ _DeepSeek V4, Gemma 4, GLM 5.2, and graduated Qwen/Kimi regression profiles for 
 | Model | ID | Reasoning | Notes |
 |-------|----|-----------|-------|
 | DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | returns `reasoning` field |
-| DeepSeek V4 Pro | `deepseek-ai/DeepSeek-V4-Pro` | Yes | returns `reasoning` field |
 | Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | Yes | thinking controlled with vLLM `chat_template_kwargs.enable_thinking`; effort levels are not published |
 | GLM 5.2 FP8 | `zai-org/GLM-5.2-FP8` | Yes | off via top-level `reasoning_effort: "none"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field |
 | GLM 5.2 NVFP4 | `zai-org/GLM-5.2-NVFP4` | Yes | off via top-level `reasoning_effort: "none"` (only lever GLM responds to; `enable_thinking`/`thinking`/chat_template_kwargs toggles are ignored); effort `high`/`max` only (minimal/low/medium clamp to `high`); multi-turn continuity via `clear_thinking` (false when thinking on = preserve, true when off = clear; `preserve_thinking` is inert for GLM) injected via onPayload; returns `reasoning` field |
