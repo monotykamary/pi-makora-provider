@@ -396,6 +396,31 @@ function updateDeprecatedModels(modelsJsonPath, newModels) {
   }
 }
 
+/**
+ * Grace-period deprecated models (deprecatedAt within TTL) with metadata stripped.
+ * Keeps the README table serving models that are delisted but still within their
+ * 14-day grace window.
+ */
+function withDeprecatedForReadme(models) {
+  const deprecatedPath = path.join(path.dirname(MODELS_JSON_PATH), 'deprecated-models.json');
+  let deprecated = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(deprecatedPath, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) deprecated = parsed;
+  } catch { /* no graveyard yet */ }
+  const now = Date.now();
+  const seen = new Set(models.map(m => m.id));
+  const extras = [];
+  for (const entry of Object.values(deprecated)) {
+    if (!entry || !entry.id || seen.has(entry.id)) continue;
+    const removedAt = Date.parse(entry.deprecatedAt || '');
+    if (Number.isNaN(removedAt) || now - removedAt > DEPRECATED_MODEL_TTL_MS) continue;
+    const m = { ...entry };
+    delete m.deprecatedAt;
+    extras.push(m);
+  }
+  return extras.length > 0 ? [...models, ...extras] : models;
+}
 async function main() {
   try {
     const apiModels = await fetchModels();
