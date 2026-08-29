@@ -43,8 +43,8 @@
     ]
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "^0.84.3",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-agent-core": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
     "vitest": "^4.1.9"
   }
 }
