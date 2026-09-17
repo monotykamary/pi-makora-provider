@@ -19,7 +19,10 @@ _DeepSeek V4, Gemma 4, GLM 5.2, and graduated Qwen/Kimi regression profiles for 
 | Model | ID | Reasoning | Notes |
 |-------|----|-----------|-------|
 | DeepSeek V4 Flash | `deepseek-ai/DeepSeek-V4-Flash` | Yes | returns `reasoning` field |
+| DeepSeek V4.1 Flash | `deepseek-ai/DeepSeek-V4.1-Flash` | No |  |
 | Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | Yes | thinking controlled with vLLM `chat_template_kwargs.enable_thinking`; effort levels are not published |
+| GLM 5.3 | `zai-org/GLM-5.3` | No |  |
+| Kimi K3 | `moonshotai/Kimi-K3` | No |  |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 <!-- MODELS_TABLE_END -->
 
