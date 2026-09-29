@@ -456,7 +456,7 @@ export function registerNanCollapseGuard(pi: ExtensionAPI): void {
   // used to label the recovery notify. The recovery state trim handles the
   // aborted turn; this hook also removes the hidden resume marker and covers
   // ordinary user-prompt turns.
-  pi.on("context", (event: any) => {
+  pi.on("context", (event) => {
     const messages = event.messages;
     if (messages && messages.length > 0) {
       _lastPromptTokens = estimateTokensMessages(messages);

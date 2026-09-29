@@ -547,7 +547,7 @@ export function streamMakora(
 
   return openAICompletionsApi().streamSimple(makoraModel, context, {
     ...streamOptions,
-    reasoning: clampedReasoning,
+    reasoning: reasoningEffort,
     apiKey,
     ...(onPayload ? { onPayload } : {}),
   });
@@ -726,7 +726,7 @@ export default function (pi: ExtensionAPI) {
           const overrides = cfg.modelOverrides ?? (cfg.modelOverrides = {});
           const ov = overrides[entry.id] ?? (overrides[entry.id] = {});
           const compat = ov.compat ?? (ov.compat = {});
-          const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
+          const kwargs = isPlainObject(compat.chatTemplateKwargs) ? compat.chatTemplateKwargs : (compat.chatTemplateKwargs = {});
           kwargs[entry.flag] = flagValue;
           return cfg;
         });
@@ -776,7 +776,7 @@ export default function (pi: ExtensionAPI) {
                     const overrides = cfg.modelOverrides ?? (cfg.modelOverrides = {});
                     const ov = overrides[modelId] ?? (overrides[modelId] = {});
                     const compat = ov.compat ?? (ov.compat = {});
-                    const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
+                    const kwargs = isPlainObject(compat.chatTemplateKwargs) ? compat.chatTemplateKwargs : (compat.chatTemplateKwargs = {});
                     kwargs[entry.flag] = flagValue;
                     return cfg;
                   });
