@@ -1,4 +1,4 @@
-// Offline Pi 1.0 manifest, lifecycle, catalog and real transport regression.
+// Offline Pi 1.1.0 manifest, lifecycle, catalog and real transport regression.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,13 +18,16 @@ try {
   const hostEntry = process.env.PI1_HOST_ENTRY === 'bundle' ? 'dist/bundle/index.js' : 'dist/index.js';
   const sdk = await import(host ? pathToFileURL(join(host, hostEntry)).href : '@earendil-works/pi-coding-agent');
   const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, VERSION } = sdk;
-  assert.equal(VERSION, '1.0.0', 'executing host version');
-  assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.0.0', 'development host version');
+  assert.equal(VERSION, '1.1.0', 'executing host version');
+  assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.1.0', 'development host version');
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  // The updater preserves an unpublished context limit as 0, not a guessed value.
+  const unknownContextIds = new Set(JSON.parse(await readFile(join(root, 'models.json'), 'utf8'))
+    .filter(model => model.contextWindow === 0).map(model => model.id));
   for (const name of ['@earendil-works/pi-ai', '@earendil-works/pi-agent-core', '@earendil-works/pi-coding-agent', '@earendil-works/pi-tui', 'typebox']) {
     assert.equal(manifest.dependencies?.[name], undefined, `${name}: do not bundle host packages`);
     if (manifest.peerDependencies?.[name] !== undefined) assert.equal(manifest.peerDependencies[name], '*');
-    if (name !== 'typebox' && manifest.devDependencies?.[name]) assert.equal(manifest.devDependencies[name], '1.0.0');
+    if (name !== 'typebox' && manifest.devDependencies?.[name]) assert.equal(manifest.devDependencies[name], '1.1.0');
   }
   const settingsManager = SettingsManager.inMemory({ packages: [root], compaction: { enabled: false }, retry: { enabled: false } });
   const resourceLoader = new DefaultResourceLoader({ cwd: home, agentDir: home, settingsManager,
@@ -58,7 +61,9 @@ try {
     for (const model of models) {
       assert.equal(model.provider, name); assert(model.api && model.baseUrl && model.id && model.name);
       if (model.type === 'image') assert(model.output.includes('image'));
-      else assert(model.contextWindow > 0);
+      else assert(Number.isFinite(model.contextWindow) &&
+        (model.contextWindow > 0 || (model.contextWindow === 0 && unknownContextIds.has(model.id))),
+        `${model.id}: positive context limit or the embedded unknown-limit sentinel`);
       if ((model.type ?? 'chat') === 'chat') assert(model.maxTokens > 0);
       assert(model.input.includes('text'));
       for (const cost of Object.values(model.cost)) assert(Number.isFinite(cost) && cost >= 0);
@@ -105,7 +110,24 @@ try {
     assert.equal(aborted.stopReason, 'aborted', aborted.errorMessage); streamChecks++;
     modelCount += models.length;
   }
-  await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
+  // Agent.subscribe is monkey-patched during factory loading. Verify it captured
+  // the real session Agent (not a duplicate SDK class) and still chains subscriptions.
+  await modelRuntime.setRuntimeApiKey('makora', 'offline-placeholder');
+  await session.setModel({ ...modelRuntime.getModels('makora')[0], id: 'zai-org/GLM-5.2-NVFP4' });
+  const agent = session.agent;
+  const originalAbort = agent.abort;
+  let guardAborts = 0;
+  agent.abort = function () { assert.equal(this, agent); guardAborts++; return originalAbort.call(this); };
+  try {
+    await session.extensionRunner.emit({ type: 'before_agent_start', prompt: 'offline guard probe', images: [], systemPrompt: '' });
+    await session.extensionRunner.emit({ type: 'message_start', message: { role: 'assistant' } });
+    await session.extensionRunner.emit({ type: 'message_update', message: { role: 'assistant' }, assistantMessageEvent: { type: 'thinking_delta', delta: '!'.repeat(64), contentIndex: 0 } });
+    assert.equal(guardAborts, 1, 'NaN guard must abort the actual Pi 1.1.0 session Agent');
+  } finally {
+    // Cancel backoff before any continuation; all network remains stubbed.
+    await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
+    agent.abort = originalAbort;
+  }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ repo: manifest.name, pi: VERSION, hostEntry, extensions: loaded.extensions.length, tools: tools.size, models: modelCount, streamChecks, lifecycle: 'passed' }));
 } finally {
