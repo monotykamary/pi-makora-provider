@@ -63,6 +63,27 @@
     }
   },
   {
+    "id": "tencent/Hy4-preview",
+    "name": "Hy4 Preview",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 131072,
+    "maxTokens": 128000,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  {
     "id": "XiaomiMiMo/MiMo-V2.6-Flash-RL",
     "name": "MiMo V2.6 Flash RL",
     "reasoning": false,
