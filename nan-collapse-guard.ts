@@ -366,12 +366,13 @@ export function registerNanCollapseGuard(pi: ExtensionAPI): void {
     _lastPromptTokens = 0;
   });
 
-  // before_agent_start fires only for user prompts, not recovery custom turns,
-  // so resets bound detection to the current user turn.
-  pi.on("before_agent_start", () => {
-    // A real prompt supersedes a recovery waiting in backoff. This event does
-    // not fire for the hidden custom recovery turn, so it closes the startup
-    // race without cancelling our own retries.
+  // Resets bound detection to the current user turn. Since pi 1.2.0
+  // before_agent_start also fires for custom-message runs such as our hidden
+  // recovery turn, so those are skipped here.
+  pi.on("before_agent_start", (event) => {
+    if (event.messageType === "custom") return;
+    // A real prompt supersedes a recovery waiting in backoff. Skipping custom
+    // runs closes the startup race without cancelling our own retries.
     if (_recovering) {
       _sessionGeneration++;
       _recovering = false;

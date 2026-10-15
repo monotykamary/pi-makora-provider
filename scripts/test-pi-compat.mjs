@@ -1,4 +1,4 @@
-// Offline Pi 1.1.0 manifest, lifecycle, catalog and real transport regression.
+// Offline Pi 1.2.0 manifest, lifecycle, catalog and real transport regression.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,8 +18,8 @@ try {
   const hostEntry = process.env.PI1_HOST_ENTRY === 'bundle' ? 'dist/bundle/index.js' : 'dist/index.js';
   const sdk = await import(host ? pathToFileURL(join(host, hostEntry)).href : '@earendil-works/pi-coding-agent');
   const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, VERSION } = sdk;
-  assert.equal(VERSION, '1.1.0', 'executing host version');
-  assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.1.0', 'development host version');
+  assert.equal(VERSION, '1.2.0', 'executing host version');
+  assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.2.0', 'development host version');
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   // The updater preserves an unpublished context limit as 0, not a guessed value.
   const unknownContextIds = new Set(JSON.parse(await readFile(join(root, 'models.json'), 'utf8'))
@@ -27,7 +27,7 @@ try {
   for (const name of ['@earendil-works/pi-ai', '@earendil-works/pi-agent-core', '@earendil-works/pi-coding-agent', '@earendil-works/pi-tui', 'typebox']) {
     assert.equal(manifest.dependencies?.[name], undefined, `${name}: do not bundle host packages`);
     if (manifest.peerDependencies?.[name] !== undefined) assert.equal(manifest.peerDependencies[name], '*');
-    if (name !== 'typebox' && manifest.devDependencies?.[name]) assert.equal(manifest.devDependencies[name], '1.1.0');
+    if (name !== 'typebox' && manifest.devDependencies?.[name]) assert.equal(manifest.devDependencies[name], '1.2.0');
   }
   const settingsManager = SettingsManager.inMemory({ packages: [root], compaction: { enabled: false }, retry: { enabled: false } });
   const resourceLoader = new DefaultResourceLoader({ cwd: home, agentDir: home, settingsManager,
@@ -122,7 +122,7 @@ try {
     await session.extensionRunner.emit({ type: 'before_agent_start', prompt: 'offline guard probe', images: [], systemPrompt: '' });
     await session.extensionRunner.emit({ type: 'message_start', message: { role: 'assistant' } });
     await session.extensionRunner.emit({ type: 'message_update', message: { role: 'assistant' }, assistantMessageEvent: { type: 'thinking_delta', delta: '!'.repeat(64), contentIndex: 0 } });
-    assert.equal(guardAborts, 1, 'NaN guard must abort the actual Pi 1.1.0 session Agent');
+    assert.equal(guardAborts, 1, 'NaN guard must abort the actual Pi 1.2.0 session Agent');
   } finally {
     // Cancel backoff before any continuation; all network remains stubbed.
     await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
