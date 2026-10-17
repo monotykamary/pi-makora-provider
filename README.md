@@ -27,7 +27,6 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | Yes | thinking controlled with vLLM `chat_template_kwargs.enable_thinking`; effort levels are not published |
 | GLM 5.3 | `zai-org/GLM-5.3` | No |  |
 | GLM 5.3 Flash | `zai-org/GLM-5.3-Flash` | No |  |
-| Hy4 Preview | `tencent/Hy4-preview` | No |  |
 | Kimi K3 | `moonshotai/Kimi-K3` | No |  |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | MiMo V2.6 Flash RL | `XiaomiMiMo/MiMo-V2.6-Flash-RL` | No |  |
