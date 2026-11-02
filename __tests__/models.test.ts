@@ -7,6 +7,7 @@ describe("Makora v1 model limits", () => {
     const model = models.find(({ id }) => id === "deepseek-ai/DeepSeek-V4.1-Flash");
 
     expect(model).toBeDefined();
-    expect(model?.maxTokens).toBe(393216);
+    // The 2026-10-18 provider catalog raised this limit from 393216.
+    expect(model?.maxTokens).toBe(943718);
   });
 });
