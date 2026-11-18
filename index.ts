@@ -46,7 +46,7 @@
  *   (modelOverrides, applied on top of patch.json) and take effect immediately.
  */
 
-import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { clampThinkingLevel, openAICompletionsApi } from "@earendil-works/pi-ai/compat";
 import modelsData from "./models.json" with { type: "json" };
@@ -54,7 +54,7 @@ import customModelsData from "./custom-models.json" with { type: "json" };
 import patchData from "./patch.json" with { type: "json" };
 import deprecatedData from "./deprecated-models.json" with { type: "json" };
 import { registerNanCollapseGuard, nanCanary, canaryEnabled, isGuardedModel } from "./nan-collapse-guard.js";
-import fs from "fs";
+import { loadSettings, settingsObjectAt, updateSettings } from "./settings-file.js";
 import path from "path";
 
 // Types
@@ -191,30 +191,10 @@ function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | unde
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-// Reads ~/.pi/agent/extensions/makora.json. Missing file → populate with defaults
-// so the user can discover it, then return defaults. An existing-but-invalid file
-// is left untouched (defaults returned) so a user's typo isn't silently wiped.
-// Loaded lazily via getConfig() (not at import) so importing the module has no
-// filesystem side effects and unit tests can import the pure helpers safely.
+// Load lazily so importing the pure model helpers has no filesystem side effects.
 function loadConfig(): MakoraConfig {
-  let rawText: string;
-  try {
-    rawText = fs.readFileSync(CONFIG_PATH, "utf8");
-  } catch {
-    try {
-      fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
-    } catch {
-      // Write failure is non-fatal — defaults still work in memory
-    }
-    return { ...DEFAULT_CONFIG };
-  }
-  try {
-    const raw = JSON.parse(rawText);
-    return { modelOverrides: parseModelOverrides(raw.modelOverrides) };
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
+  const raw = loadSettings(CONFIG_PATH, DEFAULT_CONFIG);
+  return { modelOverrides: parseModelOverrides(raw.modelOverrides) };
 }
 
 let config: MakoraConfig | undefined;
@@ -223,23 +203,14 @@ function getConfig(): MakoraConfig {
   return config;
 }
 
-// Read-modify-write the validated config and refresh the in-memory cache. Used by
-// /makora-settings so a toggle takes effect immediately (builtModels() reads
-// getConfig()) without a restart, and without clobbering the user's other
-// modelOverrides — the mutator receives loadConfig() (validated), so overrides
-// hand-edited since startup survive the spread. The file is normalized to a
-// discoverable shape (modelOverrides: {} always present).
-function updateConfig(mutator: (cfg: MakoraConfig) => MakoraConfig): MakoraConfig {
-  const next = mutator(loadConfig());
-  const toWrite: MakoraConfig = { modelOverrides: next.modelOverrides ?? {} };
-  try {
-    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(toWrite, null, 2) + "\n");
-  } catch {
-    // Write failure is non-fatal — the in-memory cache below still updates.
-  }
-  config = next;
-  return next;
+function savePreserveFlag(id: string, flag: "clear_thinking" | "preserve_thinking", value: boolean): void {
+  const raw = updateSettings(CONFIG_PATH, DEFAULT_CONFIG, (settings) => {
+    const overrides = settingsObjectAt(settings, "modelOverrides");
+    const override = settingsObjectAt(overrides, id);
+    const compat = settingsObjectAt(override, "compat");
+    settingsObjectAt(compat, "chatTemplateKwargs")[flag] = value;
+  });
+  config = { modelOverrides: parseModelOverrides(raw.modelOverrides) };
 }
 
 // Resolve whether a model's preserve/clear flag currently means "preserve
@@ -611,7 +582,17 @@ export default function (pi: ExtensionAPI) {
       apiKey: "$MAKORA_OPTIMIZE_TOKEN",
       api: "makora",
       streamSimple: streamMakora,
-      models,
+      models: models.map((model) => {
+        if (Number.isSafeInteger(model.maxTokens) && model.maxTokens > 0) return model;
+        // The catalog uses 0 for an unpublished output limit. Pi forwards its
+        // registered maxTokens as a request default, so use a conservative
+        // positive budget (not the full context window or an invented limit).
+        const budget = 4096;
+        const maxTokens = Number.isSafeInteger(model.contextWindow) && model.contextWindow > 0
+          ? Math.min(budget, model.contextWindow)
+          : budget;
+        return { ...model, maxTokens };
+      }),
     };
   }
 
@@ -691,6 +672,21 @@ export default function (pi: ExtensionAPI) {
     if (modelSelectNotifyTimer) { clearTimeout(modelSelectNotifyTimer); modelSelectNotifyTimer = null; }
   });
 
+  function applyPreserveSetting(
+    ctx: ExtensionContext,
+    entry: ReturnType<typeof collectPreserveState>[number],
+    preservedOn: boolean,
+  ): void {
+    try {
+      savePreserveFlag(entry.id, entry.flag, entry.flag === "clear_thinking" ? !preservedOn : preservedOn);
+    } catch (error) {
+      ctx.ui.notify(`Could not save Makora settings: ${error instanceof Error ? error.message : String(error)}`, "error");
+      return;
+    }
+    pi.registerProvider(PROVIDER_ID, makeProviderConfig(builtModels()));
+    ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} — takes effect now.`, "info");
+  }
+
   // /makora-settings: settings UI (mirrors pi core /settings)
   //
   // Opens a SettingsList (lazy-imported from pi-tui) via ctx.ui.custom(). Toggles
@@ -720,18 +716,7 @@ export default function (pi: ExtensionAPI) {
         if (!entry) return;
         const v = await ctx.ui.select(entry.name, ["Preserve Thinking", "Clear Thinking"]);
         if (v === undefined) return;
-        const preservedOn = v === "Preserve Thinking";
-        const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
-        updateConfig((cfg) => {
-          const overrides = cfg.modelOverrides ?? (cfg.modelOverrides = {});
-          const ov = overrides[entry.id] ?? (overrides[entry.id] = {});
-          const compat = ov.compat ?? (ov.compat = {});
-          const kwargs = isPlainObject(compat.chatTemplateKwargs) ? compat.chatTemplateKwargs : (compat.chatTemplateKwargs = {});
-          kwargs[entry.flag] = flagValue;
-          return cfg;
-        });
-        pi.registerProvider(PROVIDER_ID, makeProviderConfig(builtModels()));
-        ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} \u2014 takes effect now.`, "info");
+        applyPreserveSetting(ctx, entry, v === "Preserve Thinking");
         return;
       }
       const { SettingsList, Container } = await import("@earendil-works/pi-tui");
@@ -770,18 +755,7 @@ export default function (pi: ExtensionAPI) {
                   const modelId = id.slice("preserve:".length);
                   const entry = fresh.find((p) => p.id === modelId);
                   if (!entry) return;
-                  const preservedOn = newValue === "Preserve Thinking";
-                  const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
-                  updateConfig((cfg) => {
-                    const overrides = cfg.modelOverrides ?? (cfg.modelOverrides = {});
-                    const ov = overrides[modelId] ?? (overrides[modelId] = {});
-                    const compat = ov.compat ?? (ov.compat = {});
-                    const kwargs = isPlainObject(compat.chatTemplateKwargs) ? compat.chatTemplateKwargs : (compat.chatTemplateKwargs = {});
-                    kwargs[entry.flag] = flagValue;
-                    return cfg;
-                  });
-                  pi.registerProvider(PROVIDER_ID, makeProviderConfig(builtModels()));
-                  ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} — takes effect now.`, "info");
+                  applyPreserveSetting(ctx, entry, newValue === "Preserve Thinking");
                 },
                 () => subDone(),
                 { enableSearch: true },
@@ -826,5 +800,5 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-export { parseModelOverrides, loadConfig, getConfig, updateConfig, applyModelOverride, buildModels };
+export { parseModelOverrides, loadConfig, getConfig, applyModelOverride, buildModels };
 export type { MakoraConfig, ModelOverride };
