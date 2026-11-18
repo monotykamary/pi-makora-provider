@@ -21,6 +21,27 @@
     }
   },
   {
+    "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "name": "DeepSeek V4.1 Flash 1017",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 0,
+    "maxTokens": 943718,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  {
     "id": "google/gemma-4-26B-A4B",
     "name": "Gemma 4 26B A4B",
     "reasoning": false,
@@ -42,6 +63,27 @@
     }
   },
   {
+    "id": "MiniMaxAI/MiniMax-M3.1-Flash",
+    "name": "MiniMax M3.1 Flash",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  {
     "id": "moonshotai/Kimi-K3",
     "name": "Kimi K3",
     "reasoning": false,
@@ -56,6 +98,27 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 1048576,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsStore": false,
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  {
+    "id": "moonshotai/Kimi-K3.1-Pro",
+    "name": "Kimi K3.1 Pro",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 0,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsStore": false,

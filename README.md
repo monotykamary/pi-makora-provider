@@ -24,12 +24,15 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Model | ID | Reasoning | Notes |
 |-------|----|-----------|-------|
 | DeepSeek V4.1 Flash | `deepseek-ai/DeepSeek-V4.1-Flash` | No |  |
+| DeepSeek V4.1 Flash 1017 | `deepseek-ai/DeepSeek-V4.1-Flash-1017` | No |  |
 | Gemma 4 26B A4B | `google/gemma-4-26B-A4B` | Yes | thinking controlled with vLLM `chat_template_kwargs.enable_thinking`; effort levels are not published |
 | GLM 5.3 | `zai-org/GLM-5.3` | No |  |
 | GLM 5.3 Flash | `zai-org/GLM-5.3-Flash` | No |  |
 | Kimi K3 | `moonshotai/Kimi-K3` | No |  |
+| Kimi K3.1 Pro | `moonshotai/Kimi-K3.1-Pro` | No |  |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | MiMo V2.6 Flash RL | `XiaomiMiMo/MiMo-V2.6-Flash-RL` | No |  |
+| MiniMax M3.1 Flash | `MiniMaxAI/MiniMax-M3.1-Flash` | No |  |
 <!-- MODELS_TABLE_END -->
 
 ## Installation
