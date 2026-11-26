@@ -32,7 +32,6 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Kimi K3.1 Pro | `moonshotai/Kimi-K3.1-Pro` | No |  |
 | Llama 3.3 70B FP8 | `amd/Llama-3.3-70B-Instruct-FP8-KV` | No |  |
 | MiMo V2.6 Flash RL | `XiaomiMiMo/MiMo-V2.6-Flash-RL` | No |  |
-| MiniMax M3.1 Flash | `MiniMaxAI/MiniMax-M3.1-Flash` | No |  |
 <!-- MODELS_TABLE_END -->
 
 ## Installation
